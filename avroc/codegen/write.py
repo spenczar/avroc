@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Optional
 
 from fastavro._schema_common import PRIMITIVES
 from avroc.util import clean_name, SchemaType
@@ -26,6 +26,7 @@ from ast import (
     Expr,
     For,
     FunctionDef,
+    Gt,
     If,
     IfExp,
     Import,
@@ -56,6 +57,7 @@ from ast import (
 )
 
 class WriterCompiler(Compiler):
+
     def __init__(self, schema: SchemaType):
         super(WriterCompiler, self).__init__(schema, "writer")
 
@@ -127,7 +129,7 @@ class WriterCompiler(Compiler):
         func.body.append(Return(value=buf_var))
         return func
 
-    def _gen_encoder(self, schema: SchemaType, buf: Name, msg: Name) -> List[stmt]:
+    def _gen_encoder(self, schema: SchemaType, buf: Name, msg: expr) -> List[stmt]:
         if isinstance(schema, str):
             if schema in PRIMITIVES:
                 return self._gen_primitive_encoder(
@@ -139,10 +141,28 @@ class WriterCompiler(Compiler):
         if isinstance(schema, list):
             return self._gen_union_encoder(options=schema, buf=buf, msg=msg)
 
+        if isinstance(schema, dict):
+            if schema["type"] in PRIMITIVES:
+                return self._gen_primitive_encoder(
+                    primitive_type=schema["type"],
+                    buf=buf,
+                    msg=msg,
+                )
+            if schema["type"] == "record":
+                return self._gen_record_encoder(schema, buf, msg)
+            if schema["type"] == "array":
+                return self._gen_array_encoder(schema["items"], buf, msg)
+            if schema["type"] == "map":
+                return self._gen_map_encoder(schema["values"], buf, msg)
+            if schema["type"] == "fixed":
+                return self._gen_fixed_encoder(schema["size"], buf, msg)
+            if schema["type"] == "enum":
+                return self._gen_enum_encoder(schema["symbols"], schema.get("default"), buf, msg)
+
         raise NotImplementedError(f"Schema type not implemented: {schema}")
 
     def _gen_primitive_encoder(
-        self, primitive_type: str, buf: Name, msg: Name
+        self, primitive_type: str, buf: Name, msg: expr
     ) -> List[stmt]:
         if primitive_type == "null":
             return []
@@ -151,8 +171,139 @@ class WriterCompiler(Compiler):
         write = extend_buffer(buf, value)
         return [write]
 
+    def _gen_record_encoder(
+        self, schema: Dict, buf: Name, msg: expr
+    ) -> List[stmt]:
+        # A record is encoded as a concatenation of its fields.
+        statements: List[stmt] = []
+
+        for field in schema["fields"]:
+            field_value = Subscript(
+                value=msg,
+                slice=Index(value=Constant(value=field["name"])),
+                ctx=Load(),
+            )
+            statements.extend(self._gen_encoder(field["type"], buf, field_value))
+
+        return statements
+
+    def _gen_array_encoder(
+        self, item_schema: SchemaType, buf: Name, msg: expr
+    ) -> List[stmt]:
+        statements: List[stmt] = []
+        # An array is encoded as a series of blocks. Each block has a long
+        # count, followed by that many array items. A block with zero count
+        # indicates the end of the array.
+        n_items = Call(
+            func=Name(id="len", ctx=Load()),
+            args=[msg],
+            keywords=[])
+        # if len(msg) > 0:
+        if_stmt = If(
+            test=Compare(
+                left=n_items,
+                ops=[Gt()],
+                comparators=[Constant(value=0)],
+            ),
+            body=[],
+            orelse=[],
+        )
+        #    buf += encode_long(len(msg))
+        if_stmt.body.append(extend_buffer(buf, call_encoder("long", n_items)))
+        #    for item in msg:
+        #        buf += encode_<type>(item)
+        item_varname = self.new_variable("item")
+        write_loop = For(
+            target=Name(id=item_varname, ctx=Store()),
+            iter=msg,
+            body=self._gen_encoder(item_schema, buf, Name(id=item_varname, ctx=Load())),
+            orelse=[],
+        )
+        if_stmt.body.append(write_loop)
+        statements.append(if_stmt)
+        # buf += encode_long(0)
+        statements.append(extend_buffer(buf, call_encoder("long", 0)))
+        return statements
+
+    def _gen_map_encoder(self, value_schema: SchemaType, buf: Name, msg: expr) -> List[stmt]:
+        statements: List[stmt] = []
+        # A map is encoded as a series of blocks. Each block has a long count,
+        # followed by that many map key-value pairs. A block with zero count
+        # indicates the end of the map.
+        n_items = Call(func=Name(id="len", ctx=Load()), args=[msg], keywords=[])
+        # if len(msg) > 0:
+        if_stmt = If(
+            test=Compare(
+                left=n_items,
+                ops=[Gt()],
+                comparators=[Constant(value=0)],
+            ),
+            body=[],
+            orelse=[],
+        )
+        #    buf += encode_long(len(msg))
+        if_stmt.body.append(extend_buffer(buf, call_encoder("long", n_items)))
+        #    for key, val in msg.items():
+        #        buf += encode_string(key)
+        #        buf += encode_<item>(val)
+        key_varname = self.new_variable("key")
+        val_varname = self.new_variable("val")
+        items_call = Call(
+            func=Attribute(value=msg, attr="items", ctx=Load()),
+            args=[],
+            keywords=[],
+        )
+        write_loop = For(
+            target=Tuple(
+                elts=[
+                    Name(id=key_varname, ctx=Store()),
+                    Name(id=val_varname, ctx=Store()),
+                ],
+                ctx=Store(),
+            ),
+            iter=items_call,
+            body=[],
+            orelse=[],
+        )
+        write_loop.body.extend(self._gen_primitive_encoder(
+            "string", buf, Name(id=key_varname, ctx=Load()),
+        ))
+        write_loop.body.extend(self._gen_encoder(
+            value_schema, buf, Name(id=val_varname, ctx=Load()),
+        ))
+        if_stmt.body.append(write_loop)
+        statements.append(if_stmt)
+        # buf += encode_long(0)
+        statements.append(extend_buffer(buf, call_encoder("long", 0)))
+        return statements
+
+    def _gen_fixed_encoder(self, size: int, buf: Name, msg: expr) -> List[stmt]:
+        return [extend_buffer(buf, msg)]
+
+    def _gen_enum_encoder(self, symbols: List[str], default: Optional[str], buf: Name, msg: expr) -> List[stmt]:
+        # Construct a literal dictionary which maps symbols to integers.
+        enum_map = DictLiteral(keys=[], values=[])
+        for i, sym in enumerate(symbols):
+            enum_map.keys.append(Constant(value=sym))
+            enum_map.values.append(Constant(value=i))
+
+        # buf += encode_long(dict.get(msg, default=default))
+        dict_lookup = Call(
+            func=Attribute(
+                value=enum_map,
+                attr="get",
+                ctx=Load(),
+            ),
+            args=[msg],
+            keywords=[],
+        )
+        if default is not None:
+            dict_lookup.args.append(Constant(value=default))
+        long_encode = call_encoder("long", dict_lookup)
+        return [extend_buffer(buf, long_encode)]
+
     def _gen_union_encoder(
-        self, options: List[SchemaType], buf: Name, msg: Name
+        self, options: List[SchemaType], buf: Name, msg: expr
     ) -> List[stmt]:
         statements: List[stmt] = []
 
@@ -162,7 +313,7 @@ class WriterCompiler(Compiler):
 
         def call_isinstance(args):
             return Call(
-                func=Name("isinstance", ctx=Load()),
+                func=Name(id="isinstance", ctx=Load()),
                 args=[msg, args],
                 keywords=[],
             )
@@ -186,7 +337,7 @@ class WriterCompiler(Compiler):
 
         return statements
 
-    def _gen_union_type_test(self, schema: SchemaType, msg: Name) -> expr:
+    def _gen_union_type_test(self, schema: SchemaType, msg: expr) -> expr:
         def call_isinstance(args):
             return Call(
                 func=Name("isinstance", ctx=Load()),
@@ -293,10 +444,10 @@ class WriterCompiler(Compiler):
                     op=Not(),
                     operand=call_isinstance(Name(id="bool", ctx=Load())),
                 )
-                returnBoolOp(op=And(), values=[is_float_type, is_not_bool])
+                return BoolOp(op=And(), values=[is_float_type, is_not_bool])
 
         else:
             # Union-of-union is explicitly forbidden by the Avro spec, so all
             # thats left is dict types.
-            assert isinstance(option_schema, dict)
+            assert isinstance(schema, dict)
         raise NotImplementedError(f"have not implemented union check for type {schema}")

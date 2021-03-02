@@ -21,15 +21,13 @@ def call_decoder(primitive_type: str, src: Name) -> expr:
         keywords=[],
     )
 
-def call_encoder(primitive_type: str, msg: Union[Name, Constant, int]) -> expr:
+def call_encoder(primitive_type: str, msg: Union[expr, int]) -> expr:
     call = Call(
         func=Name(id="encode_" + primitive_type, ctx=Load()),
         keywords=[],
     )
-    if isinstance(msg, Name):
-        call.args = [Name(id=msg.id, ctx=Load())]
-    elif isinstance(msg, Constant):
-        call.args = [Constant(value=msg.Value)]
+    if isinstance(msg, expr):
+        call.args = [msg]
     else:
         call.args = [Constant(value=msg)]
     return call
