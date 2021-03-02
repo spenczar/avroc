@@ -174,7 +174,7 @@ class WriterCompiler(Compiler):
             #    buf += write_<datatype>(msg)
             if_stmt = If(
                 test=self._gen_union_type_test(option_schema, msg),
-                body=[Expr(call_encoder("long", idx))],
+                body=[extend_buffer(buf, call_encoder("long", idx))],
                 orelse=[],
             )
             if_stmt.body.extend(self._gen_encoder(option_schema, buf, msg))

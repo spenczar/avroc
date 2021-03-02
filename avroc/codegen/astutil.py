@@ -27,7 +27,7 @@ def call_encoder(primitive_type: str, msg: Union[Name, Constant, int]) -> expr:
         keywords=[],
     )
     if isinstance(msg, Name):
-        call.args = [Name(id=msg.id, ctx=Load())],
+        call.args = [Name(id=msg.id, ctx=Load())]
     elif isinstance(msg, Constant):
         call.args = [Constant(value=msg.Value)]
     else:
