@@ -6,6 +6,7 @@ from fastavro.read import block_reader
 from avroc.avro_common import PRIMITIVES, LOGICALS
 from avroc.util import SchemaType, clean_name, LogicalTypeError
 from avroc.codegen.compiler import Compiler
+from avroc.codegen.astutil import call_decoder, method_call, floor_div, mod, mult, add, utc
 
 from ast import (
     Add,
@@ -249,7 +250,7 @@ class ReaderCompiler(Compiler):
     ) -> List[stmt]:
         statements: List[stmt] = []
         is_populated = Compare(
-            left=Call(func=Name(id="decode_long", ctx=Load()), args=[src], keywords=[]),
+            left=call_decoder("long", src),
             ops=[Eq()],
             comparators=[Constant(idx)],
         )
@@ -260,11 +261,7 @@ class ReaderCompiler(Compiler):
 
             if_expr = IfExp(
                 test=is_populated,
-                body=Call(
-                    func=Name(id="decode_" + schema, ctx=Load()),
-                    args=[src],
-                    keywords=[],
-                ),
+                body=call_decoder(schema, src),
                 orelse=Constant(None),
             )
             assignment = Assign(
@@ -487,9 +484,7 @@ class ReaderCompiler(Compiler):
         )
         if_negative_blocksize.body.append(flip_blocksize_sign)
         # Just discard the byte size of the block.
-        read_a_long = Expr(
-            Call(func=Name(id="decode_long", ctx=Load()), args=[src], keywords=[])
-        )
+        read_a_long = Expr(call_decoder("long", src))
         if_negative_blocksize.body.append(read_a_long)
         while_loop.body.append(if_negative_blocksize)
 
@@ -536,13 +531,7 @@ class ReaderCompiler(Compiler):
                 attr="get",
                 ctx=Load(),
             ),
-            args=[
-                Call(
-                    func=Name(id="decode_long", ctx=Load()),
-                    args=[src],
-                    keywords=[],
-                )
-            ],
+            args=[call_decoder("long", src)],
             keywords=[],
         )
 
@@ -585,15 +574,9 @@ class ReaderCompiler(Compiler):
             )
             return [statement]
 
-        decode_func_name = "decode_" + primitive_type
-        value = Call(
-            func=Name(id=decode_func_name, ctx=Load()),
-            args=[src],
-            keywords=[],
-        )
         statement = Assign(
             targets=[dest],
-            value=value,
+            value=call_decoder(primitive_type, src),
         )
         return [statement]
 
@@ -652,14 +635,9 @@ class ReaderCompiler(Compiler):
         statements.append(
             Assign(
                 targets=[raw_int_dest],
-                value=Call(
-                    func=Attribute(
-                        value=Name(id="int", ctx=Load()),
-                        attr="from_bytes",
-                        ctx=Load(),
-                    ),
+                value=method_call("int.from_bytes",
                     args=[Name(id=raw_bytes_varname, ctx=Load())],
-                    keywords=[keyword(arg="byteorder", value=Constant(value="big"))],
+                    kwargs={"byteorder": Constant(value="big")},
                 ),
             )
         )
@@ -683,15 +661,11 @@ class ReaderCompiler(Compiler):
         )
         # Then, use the context to interpret the unscaled integer and scale it
         # up, like decimal_context.create_decimal(raw_int).scaleb(-{scale}, decimal_context)
-        create_decimal_call = Call(
-            func=Attribute(
-                value=Name(id="decimal_context", ctx=Load()),
-                attr="create_decimal",
-                ctx=Load(),
-            ),
+        create_decimal_call = method_call(
+            f"{decimal_ctx_varname}.create_decimal",
             args=[Name(id=raw_int_varname, ctx=Load())],
-            keywords=[],
         )
+
         scaleb_call = Call(
             func=Attribute(value=create_decimal_call, attr="scaleb", ctx=Load()),
             args=[
@@ -711,24 +685,10 @@ class ReaderCompiler(Compiler):
         if schema["type"] != "string":
             raise LogicalTypeError("unexpected type for uuid")
         # Call uuid.UUID(decode_string(src)).
-        decode_call = Call(
-            func=Name(id="decode_string", ctx=Load()),
-            args=[src],
-            keywords=[],
-        )
-        uuid_constructor = Attribute(
-            value=Name(id="uuid", ctx=Load()),
-            attr="UUID",
-            ctx=Load(),
-        )
-        uuid_constructor_call = Call(
-            func=uuid_constructor,
-            args=[decode_call],
-            keywords=[],
-        )
+        call = method_call("uuid.UUID", [call_decoder("string", src)])
         assignment = Assign(
             targets=[dest],
-            value=uuid_constructor_call,
+            value=call,
         )
         return [assignment]
 
@@ -739,29 +699,11 @@ class ReaderCompiler(Compiler):
             raise LogicalTypeError("unexpected type for date")
         unix_epoch_day_zero = datetime.date(1970, 1, 1).toordinal()
         # Call datetime.date.fromordinal(read_int(src) + {unix_epoch_day_zero})
-        decode_call = Call(
-            func=Name(id="decode_int", ctx=Load()),
-            args=[src],
-            keywords=[],
-        )
-        sum_call = BinOp(
-            left=decode_call,
-            right=Constant(value=unix_epoch_day_zero),
-            op=Add(),
-        )
-        date_constructor = Attribute(
-            value=Attribute(
-                value=Name(id="datetime", ctx=Load()),
-                attr="date",
-                ctx=Load(),
-            ),
-            attr="fromordinal",
-            ctx=Load(),
-        )
-        date_constructor_call = Call(
-            func=date_constructor,
-            args=[sum_call],
-            keywords=[],
+        decode_call = call_decoder("int", src)
+        add_epoch_to_int = add(decode_call, unix_epoch_day_zero)
+        date_constructor_call = method_call(
+            "datetime.date.fromordinal",
+            [add_epoch_to_int],
         )
         assignment = Assign(
             targets=[dest],
@@ -786,47 +728,14 @@ class ReaderCompiler(Compiler):
         raw_int_dest = Name(id=raw_int_varname, ctx=Store())
         statements.extend(self._gen_primitive_decode("int", src, raw_int_dest))
         raw_int = Name(id=raw_int_varname, ctx=Load())
-        hours = BinOp(
-            op=FloorDiv(),
-            left=raw_int,
-            right=Constant(value=1000 * 60 * 60),
-        )
-        minutes = BinOp(
-            op=Mod(),
-            left=BinOp(
-                op=FloorDiv(),
-                left=raw_int,
-                right=Constant(value=1000 * 60),
-            ),
-            right=Constant(value=60),
-        )
-        seconds = BinOp(
-            op=Mod(),
-            left=BinOp(
-                op=FloorDiv(),
-                left=raw_int,
-                right=Constant(value=1000),
-            ),
-            right=Constant(value=60),
-        )
-        microseconds = BinOp(
-            op=Mult(),
-            left=BinOp(
-                op=Mod(),
-                left=raw_int,
-                right=Constant(value=1000),
-            ),
-            right=Constant(value=1000),
-        )
-        time_constructor = Attribute(
-            value=Name(id="datetime"),
-            attr="time",
-            ctx=Load(),
-        )
-        time_constructor_call = Call(
-            func=time_constructor,
-            args=[hours, minutes, seconds, microseconds],
-            keywords=[],
+        hours = floor_div(raw_int, 1000 * 60 * 60)
+        minutes = mod(floor_div(raw_int, 1000 * 60), 60)
+        seconds = mod(floor_div(raw_int, 1000), 60)
+        microseconds = mult(mod(raw_int, 1000), 1000)
+
+        time_constructor_call = method_call(
+            "datetime.time",
+            [hours, minutes, seconds, microseconds],
         )
         statements.append(
             Assign(
@@ -853,43 +762,14 @@ class ReaderCompiler(Compiler):
         raw_int_dest = Name(id=raw_int_varname, ctx=Store())
         statements.extend(self._gen_primitive_decode("int", src, raw_int_dest))
         raw_int = Name(id=raw_int_varname, ctx=Load())
-        hours = BinOp(
-            op=FloorDiv(),
-            left=raw_int,
-            right=Constant(value=1000000 * 60 * 60),
-        )
-        minutes = BinOp(
-            op=Mod(),
-            left=BinOp(
-                op=FloorDiv(),
-                left=raw_int,
-                right=Constant(value=1000000 * 60),
-            ),
-            right=Constant(value=60),
-        )
-        seconds = BinOp(
-            op=Mod(),
-            left=BinOp(
-                op=FloorDiv(),
-                left=raw_int,
-                right=Constant(value=1000000),
-            ),
-            right=Constant(value=60),
-        )
-        microseconds = BinOp(
-            op=Mod(),
-            left=raw_int,
-            right=Constant(value=1000000),
-        )
-        time_constructor = Attribute(
-            value=Name(id="datetime"),
-            attr="time",
-            ctx=Load(),
-        )
-        time_constructor_call = Call(
-            func=time_constructor,
-            args=[hours, minutes, seconds, microseconds],
-            keywords=[],
+        hours = floor_div(raw_int, 1000000 * 60 * 60)
+        minutes = mod(floor_div(raw_int, 1000000 * 60), 60)
+        seconds = mod(floor_div(raw_int, 1000000), 60)
+        microseconds = mod(raw_int, 1000000)
+
+        time_constructor_call = method_call(
+            "datetime.time",
+            [hours, minutes, seconds, microseconds],
         )
         statements.append(
             Assign(
@@ -905,48 +785,18 @@ class ReaderCompiler(Compiler):
         if schema["type"] != "long":
             raise LogicalTypeError("unexpected type for timestamp-millis")
         # Return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=decode_long(src) * 1000)
-        decode_call = Call(
-            func=Name(id="decode_long", ctx=Load()), args=[src], keywords=[]
-        )
-        scaled_up = BinOp(
-            op=Mult(),
-            left=decode_call,
-            right=Constant(value=1000),
-        )
-        timedelta_constructor = Attribute(
-            value=Name(id="datetime", ctx=Load()), attr="timedelta", ctx=Load()
-        )
-        timedelta_constructor_call = Call(
-            func=timedelta_constructor,
-            args=[],
-            keywords=[keyword(arg="microseconds", value=scaled_up)],
-        )
+        decode_call = call_decoder("long", src)
+        scaled_up = mult(decode_call, 1000)
+        timedelta_constructor_call = method_call("datetime.timedelta", [], {"microseconds": scaled_up})
 
-        epoch_start = Call(
-            func=Attribute(
-                value=Name(id="datetime", ctx=Load()),
-                attr="datetime",
-                ctx=Load(),
-            ),
+        epoch_start = method_call(
+            "datetime.datetime",
             args=[
                 Constant(value=1970),
                 Constant(value=1),
                 Constant(value=1),
             ],
-            keywords=[
-                keyword(
-                    arg="tzinfo",
-                    value=Attribute(
-                        value=Attribute(
-                            value=Name(id="datetime", ctx=Load()),
-                            attr="timezone",
-                            ctx=Load(),
-                        ),
-                        attr="utc",
-                        ctx=Load(),
-                    ),
-                ),
-            ],
+            kwargs={"tzinfo": utc()},
         )
 
         sum_op = BinOp(
@@ -967,43 +817,17 @@ class ReaderCompiler(Compiler):
         if schema["type"] != "long":
             raise LogicalTypeError("unexpected type for timestamp-micros")
         # Return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=decode_long(src))
-        decode_call = Call(
-            func=Name(id="decode_long", ctx=Load()), args=[src], keywords=[]
-        )
-        timedelta_constructor = Attribute(
-            value=Name(id="datetime", ctx=Load()), attr="timedelta", ctx=Load()
-        )
-        timedelta_constructor_call = Call(
-            func=timedelta_constructor,
-            args=[],
-            keywords=[keyword(arg="microseconds", value=decode_call)],
-        )
+        decode_call = call_decoder("long", src)
+        timedelta_constructor_call = method_call("datetime.timedelta", [], {"microseconds": decode_call})
 
-        epoch_start = Call(
-            func=Attribute(
-                value=Name(id="datetime", ctx=Load()),
-                attr="datetime",
-                ctx=Load(),
-            ),
+        epoch_start = method_call(
+            "datetime.datetime",
             args=[
                 Constant(value=1970),
                 Constant(value=1),
                 Constant(value=1),
             ],
-            keywords=[
-                keyword(
-                    arg="tzinfo",
-                    value=Attribute(
-                        value=Attribute(
-                            value=Name(id="datetime", ctx=Load()),
-                            attr="timezone",
-                            ctx=Load(),
-                        ),
-                        attr="utc",
-                        ctx=Load(),
-                    ),
-                ),
-            ],
+            kwargs={"tzinfo": utc()},
         )
 
         sum_op = BinOp(
@@ -1032,25 +856,3 @@ class ReaderCompiler(Compiler):
                 ),
             )
         ]
-
-    def _call_logical_decode(
-        self, primitive_type: str, parser: str, src: Name, dest: AST
-    ) -> List[stmt]:
-        """
-        Read a value of primitive type from src, and then call parser on it,
-        assigning into dest.
-        """
-        statements: List[stmt] = []
-        # Read the raw value.
-        raw_varname = self.new_variable("raw_" + primitive_type)
-        raw_dest = Name(id=raw_varname, ctx=Store())
-        statements.extend(self._gen_primitive_decode(primitive_type, src, raw_dest))
-
-        # Call the fastavro parser for the logical type.
-        parse = Call(
-            func=Name(id=parser, ctx=Load()),
-            args=[Name(id=raw_varname, ctx=Load())],
-            keywords=[],
-        )
-        statements.append(Assign(targets=[dest], value=parse))
-        return statements

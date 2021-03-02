@@ -3,6 +3,7 @@ from typing import List
 from fastavro._schema_common import PRIMITIVES
 from avroc.util import clean_name, SchemaType
 from avroc.codegen.compiler import Compiler
+from avroc.codegen.astutil import extend_buffer, call_encoder
 
 INT_MAX_VALUE = (1 << 31) - 1
 INT_MIN_VALUE = -INT_MAX_VALUE
@@ -10,10 +11,12 @@ LONG_MAX_VALUE = (1 << 63) - 1
 LONG_MIN_VALUE = -LONG_MAX_VALUE
 
 from ast import (
+    Add,
     And,
     AST,
     Assign,
     Attribute,
+    AugAssign,
     BoolOp,
     Call,
     Compare,
@@ -52,18 +55,6 @@ from ast import (
     stmt,
 )
 
-PRIMITIVE_WRITERS = {
-    "string": "write_utf8",
-    "int": "write_long",
-    "long": "write_long",
-    "float": "write_float",
-    "double": "write_double",
-    "boolean": "write_boolean",
-    "bytes": "write_bytes",
-    "null": "write_null",
-}
-
-
 class WriterCompiler(Compiler):
     def __init__(self, schema: SchemaType):
         super(WriterCompiler, self).__init__(schema, "writer")
@@ -73,39 +64,24 @@ class WriterCompiler(Compiler):
 
         body.append(Import(names=[alias(name="numbers")]))
         # Add import statements of low-level writer functions
-        import_from_fastavro_write = []
-        for writer in PRIMITIVE_WRITERS.values():
-            import_from_fastavro_write.append(alias(name=writer))
+        import_from_encoding = []
+        for primitive_type in PRIMITIVES:
+            name = "encode_" + primitive_type
+            import_from_encoding.append(alias(name=name))
 
-        if self.pure_python:
-            body.append(
-                ImportFrom(
-                    module="fastavro._write_py",
-                    names=import_from_fastavro_write,
-                    level=0,
-                )
+        body.append(
+            ImportFrom(
+                module="avroc.runtime.encoding",
+                names=import_from_encoding,
+                level=0,
             )
-            body.append(
-                ImportFrom(
-                    module="fastavro.io.binary_encoder",
-                    names=[alias(name="BinaryEncoder")],
-                    level=0,
-                )
-            )
-        else:
-            body.append(
-                ImportFrom(
-                    module="fastavro._write",
-                    names=import_from_fastavro_write,
-                    level=0,
-                )
-            )
+        )
 
-        body.append(self.generate_writer_func(self.schema, self.entrypoint_name))
+        body.append(self.generate_encoder_func(self.schema, self.entrypoint_name))
         for recursive_type in self.recursive_types:
             body.append(
-                self.generate_writer_func(
-                    name=self._named_type_writer_name(recursive_type["name"]),
+                self.generate_encoder_func(
+                    name=self._named_type_encoder_name(recursive_type["name"]),
                     schema=recursive_type,
                 )
             )
@@ -121,7 +97,7 @@ class WriterCompiler(Compiler):
     def _named_type_reader_name(name: str) -> str:
         return "_write_" + clean_name(name)
 
-    def generate_writer_func(self, schema: SchemaType, name: str) -> FunctionDef:
+    def generate_encoder_func(self, schema: SchemaType, name: str) -> FunctionDef:
         msg_var = Name(id="msg", ctx=Load())
         func = FunctionDef(
             name=name,
@@ -135,52 +111,47 @@ class WriterCompiler(Compiler):
             body=[],
             decorator_list=[],
         )
-        # Create an empty byte buffer for all writes.
+        # Create an empty byte buffer for all data
         buf_var = Name(id="buf", ctx=Load())
         func.body.append(
             Assign(
                 targets=[Name(id="buf", ctx=Store())],
                 value=Call(
-                    func=Name(id="bytearray", ctx=Load()),
+                    func=Name(id="bytes", ctx=Load()),
                     args=[],
                     keywords=[],
                 ),
             )
         )
-        func.body.extend(self._gen_writer(schema, buf_var, msg_var))
+        func.body.extend(self._gen_encoder(schema, buf_var, msg_var))
         func.body.append(Return(value=buf_var))
         return func
 
-    def _gen_writer(self, schema: SchemaType, buf: Name, msg: Name) -> List[stmt]:
+    def _gen_encoder(self, schema: SchemaType, buf: Name, msg: Name) -> List[stmt]:
         if isinstance(schema, str):
             if schema in PRIMITIVES:
-                return self._gen_primitive_writer(
+                return self._gen_primitive_encoder(
                     primitive_type=schema,
                     buf=buf,
                     msg=msg,
                 )
 
         if isinstance(schema, list):
-            return self._gen_union_writer(options=schema, buf=buf, msg=msg)
+            return self._gen_union_encoder(options=schema, buf=buf, msg=msg)
 
         raise NotImplementedError(f"Schema type not implemented: {schema}")
 
-    def _gen_primitive_writer(
+    def _gen_primitive_encoder(
         self, primitive_type: str, buf: Name, msg: Name
     ) -> List[stmt]:
         if primitive_type == "null":
             return []
-        writer_func_name = PRIMITIVE_WRITERS[primitive_type]
-        write = Expr(
-            Call(
-                func=Name(id=writer_func_name, ctx=Load()),
-                args=[buf, msg],
-                keywords=[],
-            )
-        )
+        encoder_func_name = "encode_" + primitive_type
+        value = call_encoder(primitive_type, msg)
+        write = extend_buffer(buf, value)
         return [write]
 
-    def _gen_union_writer(
+    def _gen_union_encoder(
         self, options: List[SchemaType], buf: Name, msg: Name
     ) -> List[stmt]:
         statements: List[stmt] = []
@@ -199,22 +170,14 @@ class WriterCompiler(Compiler):
         for idx, option_schema in enumerate(options):
             # For each option, generate a statement of the general form:
             # if is_<datatype>(msg):
-            #    write_long(buf, idx)
-            #    write_<datatype>(buf, msg)
+            #    buf += write_long(idx)
+            #    buf += write_<datatype>(msg)
             if_stmt = If(
                 test=self._gen_union_type_test(option_schema, msg),
-                body=[
-                    Expr(
-                        Call(
-                            func=Name(id="write_long", ctx=Load()),
-                            args=[buf, Constant(idx)],
-                            keywords=[],
-                        )
-                    )
-                ],
+                body=[Expr(call_encoder("long", idx))],
                 orelse=[],
             )
-            if_stmt.body.extend(self._gen_writer(option_schema, buf, msg))
+            if_stmt.body.extend(self._gen_encoder(option_schema, buf, msg))
             if prev_if is None:
                 statements.append(if_stmt)
             else:
@@ -231,7 +194,7 @@ class WriterCompiler(Compiler):
                 keywords=[],
             )
 
-        if isinstance(option_schema, str):
+        if isinstance(schema, str):
             if schema == "null":
                 # if msg is None:
                 return Compare(left=msg, ops=[Eq()], comparators=[Constant(None)])

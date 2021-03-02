@@ -4,8 +4,10 @@ from avroc.runtime import encoding
 
 
 def roundtrip(value, encode, decode, skip):
+    encoded = encode(value)
+
     buf = io.BytesIO()
-    encode(value, buf)
+    buf.write(encoded)
     end = buf.tell()
     buf.seek(0)
 
