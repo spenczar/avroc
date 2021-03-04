@@ -2,6 +2,7 @@ from typing import IO, Generator
 
 from .encoding import decode_long, skip_long
 
+
 def decode_block(src: IO[bytes]) -> Generator:
     blocksize: int = decode_long(src)
     while blocksize != 0:

@@ -6,7 +6,16 @@ from fastavro.read import block_reader
 from avroc.avro_common import PRIMITIVES
 from avroc.util import SchemaType, clean_name, LogicalTypeError
 from avroc.codegen.compiler import Compiler
-from avroc.codegen.astutil import call_decoder, method_call, floor_div, mod, mult, add, utc, func_call
+from avroc.codegen.astutil import (
+    call_decoder,
+    method_call,
+    floor_div,
+    mod,
+    mult,
+    add,
+    utc,
+    func_call,
+)
 
 from ast import (
     Add,

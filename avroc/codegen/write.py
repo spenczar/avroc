@@ -3,7 +3,15 @@ from typing import List, Dict, Optional, Any
 from fastavro._schema_common import PRIMITIVES
 from avroc.util import clean_name, SchemaType, LogicalTypeError
 from avroc.codegen.compiler import Compiler
-from avroc.codegen.astutil import extend_buffer, call_encoder, mult, add, floor_div, method_call, func_call
+from avroc.codegen.astutil import (
+    extend_buffer,
+    call_encoder,
+    mult,
+    add,
+    floor_div,
+    method_call,
+    func_call,
+)
 
 INT_MAX_VALUE = (1 << 31) - 1
 INT_MIN_VALUE = -INT_MAX_VALUE
@@ -60,8 +68,8 @@ from ast import (
     stmt,
 )
 
-class WriterCompiler(Compiler):
 
+class WriterCompiler(Compiler):
     def __init__(self, schema: SchemaType):
         super(WriterCompiler, self).__init__(schema, "writer")
 
@@ -156,7 +164,9 @@ class WriterCompiler(Compiler):
         if isinstance(schema, dict):
             if "logicalType" in schema:
                 return self._gen_logical_encoder(
-                    schema, buf, msg,
+                    schema,
+                    buf,
+                    msg,
                 )
             if schema["type"] in PRIMITIVES:
                 return self._gen_primitive_encoder(
@@ -173,7 +183,9 @@ class WriterCompiler(Compiler):
             if schema["type"] == "fixed":
                 return self._gen_fixed_encoder(schema["size"], buf, msg)
             if schema["type"] == "enum":
-                return self._gen_enum_encoder(schema["symbols"], schema.get("default"), buf, msg)
+                return self._gen_enum_encoder(
+                    schema["symbols"], schema.get("default"), buf, msg
+                )
 
         raise NotImplementedError(f"Schema type not implemented: {schema}")
 
@@ -187,9 +199,7 @@ class WriterCompiler(Compiler):
         write = extend_buffer(buf, value)
         return [write]
 
-    def _gen_record_encoder(
-        self, schema: Dict, buf: Name, msg: expr
-    ) -> List[stmt]:
+    def _gen_record_encoder(self, schema: Dict, buf: Name, msg: expr) -> List[stmt]:
         # A record is encoded as a concatenation of its fields.
         statements: List[stmt] = []
 
@@ -210,10 +220,7 @@ class WriterCompiler(Compiler):
         # An array is encoded as a series of blocks. Each block has a long
         # count, followed by that many array items. A block with zero count
         # indicates the end of the array.
-        n_items = Call(
-            func=Name(id="len", ctx=Load()),
-            args=[msg],
-            keywords=[])
+        n_items = Call(func=Name(id="len", ctx=Load()), args=[msg], keywords=[])
         # if len(msg) > 0:
         if_stmt = If(
             test=Compare(
@@ -241,7 +248,9 @@ class WriterCompiler(Compiler):
         statements.append(extend_buffer(buf, call_encoder("long", 0)))
         return statements
 
-    def _gen_map_encoder(self, value_schema: SchemaType, buf: Name, msg: expr) -> List[stmt]:
+    def _gen_map_encoder(
+        self, value_schema: SchemaType, buf: Name, msg: expr
+    ) -> List[stmt]:
         statements: List[stmt] = []
         # A map is encoded as a series of blocks. Each block has a long count,
         # followed by that many map key-value pairs. A block with zero count
@@ -281,12 +290,20 @@ class WriterCompiler(Compiler):
             body=[],
             orelse=[],
         )
-        write_loop.body.extend(self._gen_primitive_encoder(
-            "string", buf, Name(id=key_varname, ctx=Load()),
-        ))
-        write_loop.body.extend(self._gen_encoder(
-            value_schema, buf, Name(id=val_varname, ctx=Load()),
-        ))
+        write_loop.body.extend(
+            self._gen_primitive_encoder(
+                "string",
+                buf,
+                Name(id=key_varname, ctx=Load()),
+            )
+        )
+        write_loop.body.extend(
+            self._gen_encoder(
+                value_schema,
+                buf,
+                Name(id=val_varname, ctx=Load()),
+            )
+        )
         if_stmt.body.append(write_loop)
         statements.append(if_stmt)
         # buf += encode_long(0)
@@ -296,7 +313,9 @@ class WriterCompiler(Compiler):
     def _gen_fixed_encoder(self, size: int, buf: Name, msg: expr) -> List[stmt]:
         return [extend_buffer(buf, msg)]
 
-    def _gen_enum_encoder(self, symbols: List[str], default: Optional[str], buf: Name, msg: expr) -> List[stmt]:
+    def _gen_enum_encoder(
+        self, symbols: List[str], default: Optional[str], buf: Name, msg: expr
+    ) -> List[stmt]:
         # Construct a literal dictionary which maps symbols to integers.
         enum_map = DictLiteral(keys=[], values=[])
         for i, sym in enumerate(symbols):
@@ -370,10 +389,9 @@ class WriterCompiler(Compiler):
                 if recursive_schema is not None:
                     return self._gen_union_type_test(recursive_schema, msg)
 
-        else:
-            # Union-of-union is explicitly forbidden by the Avro spec, so all
-            # thats left is dict types.
-            assert isinstance(schema, dict), "Union-of-union is forbidden by Avro spec"
+        # Union-of-union is explicitly forbidden by the Avro spec, so all
+        # thats left is dict types.
+        assert isinstance(schema, dict), "Union-of-union is forbidden by Avro spec"
 
         if "logicalType" in schema:
             lt = schema["logicalType"]
@@ -405,13 +423,17 @@ class WriterCompiler(Compiler):
             return func_call("is_map", [msg])
 
         if schema["type"] == "record":
-            field_names = Set(elts=[Constant(value=f["name"]) for f in schema["fields"]])
+            field_names = Set(
+                elts=[Constant(value=f["name"]) for f in schema["fields"]]
+            )
             c = func_call("is_record", [msg, field_names])
             return c
 
         raise NotImplementedError(f"have not implemented union check for type {schema}")
 
-    def _gen_logical_encoder(self, schema: Dict[str, Any], buf: Name, msg: expr) -> List[stmt]:
+    def _gen_logical_encoder(
+        self, schema: Dict[str, Any], buf: Name, msg: expr
+    ) -> List[stmt]:
         try:
             lt = schema["logicalType"]
             t = schema["type"]
@@ -420,17 +442,17 @@ class WriterCompiler(Compiler):
                 if t == "bytes":
                     call = func_call(
                         "encode_decimal_bytes",
-                        [msg,
-                         schema["precision"],
-                         schema.get("scale", 0)],
+                        [msg, schema["precision"], schema.get("scale", 0)],
                     )
                 elif t == "fixed":
                     call = func_call(
                         "encode_decimal_fixed",
-                        [msg,
-                         schema["size"],
-                         schema["precision"],
-                         schema.get("scale", 0)],
+                        [
+                            msg,
+                            schema["size"],
+                            schema["precision"],
+                            schema.get("scale", 0),
+                        ],
                     )
             elif lt == "uuid" and t == "string":
                 call = func_call("encode_uuid", [msg])
@@ -458,11 +480,18 @@ class WriterCompiler(Compiler):
             del schema["logicalType"]
             return self._gen_encoder(schema, buf, msg)
 
-    def _gen_recursive_encode_call(self, recursive_type_name: str, buf: Name, msg: expr) -> List[stmt]:
+    def _gen_recursive_encode_call(
+        self, recursive_type_name: str, buf: Name, msg: expr
+    ) -> List[stmt]:
         funcname = self._encoder_name(recursive_type_name)
-        c = [extend_buffer(buf, Call(
-            func=Name(id=funcname, ctx=Load()),
-            args=[msg],
-            keywords=[],
-        ))]
+        c = [
+            extend_buffer(
+                buf,
+                Call(
+                    func=Name(id=funcname, ctx=Load()),
+                    args=[msg],
+                    keywords=[],
+                ),
+            )
+        ]
         return c

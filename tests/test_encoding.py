@@ -18,8 +18,16 @@ def roundtrip(value, encode, decode, skip):
     dec = decode(buf)
     assert dec == value, "decode gives wrong value"
 
+
 class TestEncoding:
-    long_cases = [-1 << 63, -1, 0, 1, 1<<63,]
+    long_cases = [
+        -1 << 63,
+        -1,
+        0,
+        1,
+        1 << 63,
+    ]
+
     @pytest.mark.parametrize("value", long_cases)
     def test_long_roundtrip(self, value):
         roundtrip(
@@ -30,6 +38,7 @@ class TestEncoding:
         )
 
     int_cases = [-1 << 31, -1, 0, 1, 1 << 31]
+
     @pytest.mark.parametrize("value", int_cases)
     def test_int_roundtrip(self, value):
         roundtrip(
@@ -39,7 +48,8 @@ class TestEncoding:
             encoding.skip_int,
         )
 
-    float_cases = [float('+inf'), float("-inf"), 0, 1.0, 2.0, 2e8]
+    float_cases = [float("+inf"), float("-inf"), 0, 1.0, 2.0, 2e8]
+
     @pytest.mark.parametrize("value", float_cases)
     def test_float_roundtrip(self, value):
         roundtrip(
@@ -49,7 +59,8 @@ class TestEncoding:
             encoding.skip_float,
         )
 
-    double_cases = [float('+inf'), float("-inf"), 0, 1.0, 2.0, 1e60]
+    double_cases = [float("+inf"), float("-inf"), 0, 1.0, 2.0, 1e60]
+
     @pytest.mark.parametrize("value", double_cases)
     def test_double_roundtrip(self, value):
         roundtrip(
@@ -59,7 +70,8 @@ class TestEncoding:
             encoding.skip_double,
         )
 
-    string_cases = ["", "hello", "\t", "µ", "x"*1000]
+    string_cases = ["", "hello", "\t", "µ", "x" * 1000]
+
     @pytest.mark.parametrize("value", string_cases)
     def test_string_roundtrip(self, value):
         roundtrip(
@@ -70,6 +82,7 @@ class TestEncoding:
         )
 
     bytes_cases = [b"", b"hello", bytes(range(255))]
+
     @pytest.mark.parametrize("value", bytes_cases)
     def test_bytes_roundtrip(self, value):
         roundtrip(
@@ -80,6 +93,7 @@ class TestEncoding:
         )
 
     boolean_cases = [False, True]
+
     @pytest.mark.parametrize("value", boolean_cases)
     def test_boolean_roundtrip(self, value):
         roundtrip(
@@ -90,9 +104,4 @@ class TestEncoding:
         )
 
     def test_null_roundtrip(self):
-        roundtrip(
-            None,
-            encoding.encode_null,
-            encoding.decode_null,
-            encoding.skip_null
-        )
+        roundtrip(None, encoding.encode_null, encoding.decode_null, encoding.skip_null)

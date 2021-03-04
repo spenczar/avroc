@@ -35,7 +35,7 @@ class Compiler:
 
     entrypoint_name: str
 
-    debug: bool = True
+    debug: bool = False
 
     def __init__(self, schema: SchemaType, entrypoint_name: str):
         self.schema = expand_schema(schema)  # type: ignore
