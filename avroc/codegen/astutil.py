@@ -32,6 +32,13 @@ def call_encoder(primitive_type: str, msg: Union[expr, int]) -> expr:
         call.args = [Constant(value=msg)]
     return call
 
+def func_call(name: str, args: List[expr]) -> Call:
+    return Call(
+        func=Name(id=name, ctx=Load()),
+        args=args,
+        keywords=[],
+    )
+
 def method_call(chain: str, args: List[expr], kwargs: Optional[Dict[str, expr]]=None) -> Call:
     parts = chain.split(".")
     attrib = Attribute(

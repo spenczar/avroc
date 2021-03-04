@@ -3,10 +3,10 @@ from typing import Dict, Any, List, IO, Optional, Iterator
 import datetime
 
 from fastavro.read import block_reader
-from avroc.avro_common import PRIMITIVES, LOGICALS
+from avroc.avro_common import PRIMITIVES
 from avroc.util import SchemaType, clean_name, LogicalTypeError
 from avroc.codegen.compiler import Compiler
-from avroc.codegen.astutil import call_decoder, method_call, floor_div, mod, mult, add, utc
+from avroc.codegen.astutil import call_decoder, method_call, floor_div, mod, mult, add, utc, func_call
 
 from ast import (
     Add,
@@ -79,15 +79,17 @@ class ReaderCompiler(Compiler):
         ]
 
         # Add import statements of low-level decode functions
-        import_from_encoding = []
-        for primitive_type in PRIMITIVES:
-            name = "decode_" + primitive_type
-            import_from_encoding.append(alias(name=name))
-
         body.append(
             ImportFrom(
                 module="avroc.runtime.encoding",
-                names=import_from_encoding,
+                names=[alias(name="*")],
+                level=0,
+            )
+        )
+        body.append(
+            ImportFrom(
+                module="avroc.runtime.blocks",
+                names=[alias("decode_block")],
                 level=0,
             )
         )
@@ -451,66 +453,19 @@ class ReaderCompiler(Compiler):
         called for every message in the block.
         """
         statements: List[stmt] = []
-
-        # Read the blocksize to figure out how many messages to read.
-        blocksize_varname = self.new_variable("blocksize")
-        blocksize_dest = Name(id=blocksize_varname, ctx=Store())
-        statements.extend(self._gen_primitive_decode("long", src, blocksize_dest))
-
-        # For each nonzero-sized block...
-        while_loop = While(
-            test=Compare(
-                left=Name(id=blocksize_varname, ctx=Load()),
-                ops=[NotEq()],
-                comparators=[Constant(value=0)],
-            ),
-            body=[],
-            orelse=[],
+        decode_block_call = Call(
+            func=Name(id="decode_block", ctx=Load()),
+            args=[src],
+            keywords=[],
         )
 
-        # ... handle negative block sizes...
-        if_negative_blocksize = If(
-            test=Compare(
-                left=Name(id=blocksize_varname, ctx=Load()),
-                ops=[Lt()],
-                comparators=[Constant(value=0)],
-            ),
-            body=[],
-            orelse=[],
-        )
-        flip_blocksize_sign = Assign(
-            targets=[Name(id=blocksize_varname, ctx=Store())],
-            value=UnaryOp(op=USub(), operand=Name(id=blocksize_varname, ctx=Load())),
-        )
-        if_negative_blocksize.body.append(flip_blocksize_sign)
-        # Just discard the byte size of the block.
-        read_a_long = Expr(call_decoder("long", src))
-        if_negative_blocksize.body.append(read_a_long)
-        while_loop.body.append(if_negative_blocksize)
-
-        # Do a 'for _ in range(blocksize)' loop
         read_loop = For(
             target=Name(id="_", ctx=Store()),
-            iter=Call(
-                func=Name(id="range", ctx=Load()),
-                args=[Name(id=blocksize_varname, ctx=Load())],
-                keywords=[],
-            ),
+            iter=decode_block_call,
             body=for_each_message,
             orelse=[],
         )
-
-        while_loop.body.append(read_loop)
-
-        # If we've finished the block, read another long into blocksize.
-        #
-        # If it's zero, then we're done reading the array, and the loop test
-        # will exit.
-        #
-        # If it's nonzero, then there are more messages to go.
-        while_loop.body.extend(self._gen_primitive_decode("long", src, blocksize_dest))
-
-        statements.append(while_loop)
+        statements.append(read_loop)
         return statements
 
     def _gen_enum_decode(
@@ -585,21 +540,33 @@ class ReaderCompiler(Compiler):
     ) -> List[stmt]:
         try:
             lt = schema["logicalType"]
-            if lt == "decimal":
-                return self._gen_decimal_decode(schema, src, dest)
-            if lt == "uuid":
-                return self._gen_uuid_decode(schema, src, dest)
-            if lt == "date":
-                return self._gen_date_decode(schema, src, dest)
-            if lt == "time-millis":
-                return self._gen_time_millis_decode(schema, src, dest)
-            if lt == "time-micros":
-                return self._gen_time_micros_decode(schema, src, dest)
-            if lt == "timestamp-millis":
-                return self._gen_timestamp_millis_decode(schema, src, dest)
-            if lt == "timestamp-micros":
-                return self._gen_timestamp_micros_decode(schema, src, dest)
-            raise LogicalTypeError("unknown logical type")
+            t = schema["type"]
+            call = None
+            if lt == "decimal" and t == "bytes":
+                prec = Constant(value=schema["precision"])
+                scale = Constant(value=schema.get("scale", 0))
+                call = func_call("decode_decimal_bytes", [src, prec, scale])
+            elif lt == "decimal" and t == "fixed":
+                size = Constant(value=schema["size"])
+                prec = Constant(value=schema["precision"])
+                scale = Constant(value=schema.get("scale", 0))
+                call = func_call("decode_decimal_fixed", [src, size, prec, scale])
+            elif lt == "uuid" and t == "string":
+                call = func_call("decode_uuid", [src])
+            elif lt == "date" and t == "int":
+                call = func_call("decode_date", [src])
+            elif lt == "time-millis" and t == "int":
+                call = func_call("decode_time_millis", [src])
+            elif lt == "time-micros" and t == "long":
+                call = func_call("decode_time_micros", [src])
+            elif lt == "timestamp-millis" and t == "long":
+                call = func_call("decode_timestamp_millis", [src])
+            elif lt == "timestamp-micros" and t == "long":
+                call = func_call("decode_timestamp_micros", [src])
+            else:
+                raise LogicalTypeError("unknown logical type")
+
+            return [Assign(targets=[dest], value=call)]
         except LogicalTypeError:
             # If a logical type is unknown, or invalid, then we should fall back
             # and use the underlying Avro type. We do this by clearing the
@@ -607,240 +574,6 @@ class ReaderCompiler(Compiler):
             schema = schema.copy()
             del schema["logicalType"]
             return self._gen_decode(schema, src, dest)
-
-    def _gen_decimal_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        scale = schema.get("scale", 0)
-        precision = schema.get("precision", 0)
-        if precision <= 0 or scale < 0 or scale > precision:
-            raise LogicalTypeError("invalid decimal")
-
-        statements: List[stmt] = []
-
-        # Read the raw bytes. They can be either 'fixed' or 'bytes'
-        raw_bytes_varname = self.new_variable("raw_decimal")
-        raw_bytes_dest = Name(id=raw_bytes_varname, ctx=Store())
-        if schema["type"] == "bytes":
-            statements.extend(self._gen_primitive_decode("bytes", src, raw_bytes_dest))
-        elif schema["type"] == "fixed":
-            size: int = schema["size"]
-            statements.extend(self._gen_fixed_decode(size, src, raw_bytes_dest))
-        else:
-            raise LogicalTypeError("unexpected type for decimal")
-
-        # Interpret the bytes as an unscaled integer
-        raw_int_varname = self.new_variable("raw_int")
-        raw_int_dest = Name(id=raw_int_varname, ctx=Store())
-        statements.append(
-            Assign(
-                targets=[raw_int_dest],
-                value=method_call("int.from_bytes",
-                    args=[Name(id=raw_bytes_varname, ctx=Load())],
-                    kwargs={"byteorder": Constant(value="big")},
-                ),
-            )
-        )
-
-        # Scale the integer up based on the schema's scale and precision.
-        #
-        # First, create a new decimal context, like
-        #   decimal_context = decimal.Context(prec={precision})
-        decimal_ctx_varname = self.new_variable("decimal_context")
-        statements.append(
-            Assign(
-                targets=[Name(id=decimal_ctx_varname, ctx=Store())],
-                value=Call(
-                    func=Attribute(
-                        value=Name(id="decimal", ctx=Load()), attr="Context", ctx=Load()
-                    ),
-                    args=[],
-                    keywords=[keyword(arg="prec", value=Constant(value=precision))],
-                ),
-            )
-        )
-        # Then, use the context to interpret the unscaled integer and scale it
-        # up, like decimal_context.create_decimal(raw_int).scaleb(-{scale}, decimal_context)
-        create_decimal_call = method_call(
-            f"{decimal_ctx_varname}.create_decimal",
-            args=[Name(id=raw_int_varname, ctx=Load())],
-        )
-
-        scaleb_call = Call(
-            func=Attribute(value=create_decimal_call, attr="scaleb", ctx=Load()),
-            args=[
-                UnaryOp(
-                    op=USub(),
-                    operand=Constant(value=scale),
-                ),
-            ],
-            keywords=[],
-        )
-        statements.append(Assign(targets=[dest], value=scaleb_call))
-        return statements
-
-    def _gen_uuid_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        if schema["type"] != "string":
-            raise LogicalTypeError("unexpected type for uuid")
-        # Call uuid.UUID(decode_string(src)).
-        call = method_call("uuid.UUID", [call_decoder("string", src)])
-        assignment = Assign(
-            targets=[dest],
-            value=call,
-        )
-        return [assignment]
-
-    def _gen_date_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        if schema["type"] != "int":
-            raise LogicalTypeError("unexpected type for date")
-        unix_epoch_day_zero = datetime.date(1970, 1, 1).toordinal()
-        # Call datetime.date.fromordinal(read_int(src) + {unix_epoch_day_zero})
-        decode_call = call_decoder("int", src)
-        add_epoch_to_int = add(decode_call, unix_epoch_day_zero)
-        date_constructor_call = method_call(
-            "datetime.date.fromordinal",
-            [add_epoch_to_int],
-        )
-        assignment = Assign(
-            targets=[dest],
-            value=date_constructor_call,
-        )
-        return [assignment]
-
-    def _gen_time_millis_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        if schema["type"] != "int":
-            raise LogicalTypeError("unexpected type for time-millis")
-        # Decode an integer, then call
-        # datetime.time(
-        #    hour=int_val // 3600000,
-        #    minute=(int_val // 60000) % 60,
-        #    second=(int_val // 1000) % 60,
-        #    microsecond=(int_val % 1000) * 1000,
-        # )
-        statements: List[stmt] = []
-        raw_int_varname = self.new_variable("raw_time_millis")
-        raw_int_dest = Name(id=raw_int_varname, ctx=Store())
-        statements.extend(self._gen_primitive_decode("int", src, raw_int_dest))
-        raw_int = Name(id=raw_int_varname, ctx=Load())
-        hours = floor_div(raw_int, 1000 * 60 * 60)
-        minutes = mod(floor_div(raw_int, 1000 * 60), 60)
-        seconds = mod(floor_div(raw_int, 1000), 60)
-        microseconds = mult(mod(raw_int, 1000), 1000)
-
-        time_constructor_call = method_call(
-            "datetime.time",
-            [hours, minutes, seconds, microseconds],
-        )
-        statements.append(
-            Assign(
-                targets=[dest],
-                value=time_constructor_call,
-            )
-        )
-        return statements
-
-    def _gen_time_micros_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        if schema["type"] != "long":
-            raise LogicalTypeError("unexpected type for time-micros")
-        # Decode an integer, then call
-        # datetime.time(
-        #    hour=int_val // 3600000000,
-        #    minute=(int_val // 60000000) % 60,
-        #    second=(int_val // 1000000) % 60,
-        #    microsecond=(int_val % 1000000),
-        # )
-        statements: List[stmt] = []
-        raw_int_varname = self.new_variable("raw_time_micros")
-        raw_int_dest = Name(id=raw_int_varname, ctx=Store())
-        statements.extend(self._gen_primitive_decode("int", src, raw_int_dest))
-        raw_int = Name(id=raw_int_varname, ctx=Load())
-        hours = floor_div(raw_int, 1000000 * 60 * 60)
-        minutes = mod(floor_div(raw_int, 1000000 * 60), 60)
-        seconds = mod(floor_div(raw_int, 1000000), 60)
-        microseconds = mod(raw_int, 1000000)
-
-        time_constructor_call = method_call(
-            "datetime.time",
-            [hours, minutes, seconds, microseconds],
-        )
-        statements.append(
-            Assign(
-                targets=[dest],
-                value=time_constructor_call,
-            )
-        )
-        return statements
-
-    def _gen_timestamp_millis_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        if schema["type"] != "long":
-            raise LogicalTypeError("unexpected type for timestamp-millis")
-        # Return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=decode_long(src) * 1000)
-        decode_call = call_decoder("long", src)
-        scaled_up = mult(decode_call, 1000)
-        timedelta_constructor_call = method_call("datetime.timedelta", [], {"microseconds": scaled_up})
-
-        epoch_start = method_call(
-            "datetime.datetime",
-            args=[
-                Constant(value=1970),
-                Constant(value=1),
-                Constant(value=1),
-            ],
-            kwargs={"tzinfo": utc()},
-        )
-
-        sum_op = BinOp(
-            op=Add(),
-            left=epoch_start,
-            right=timedelta_constructor_call,
-        )
-        return [
-            Assign(
-                targets=[dest],
-                value=sum_op,
-            )
-        ]
-
-    def _gen_timestamp_micros_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
-        if schema["type"] != "long":
-            raise LogicalTypeError("unexpected type for timestamp-micros")
-        # Return datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(microseconds=decode_long(src))
-        decode_call = call_decoder("long", src)
-        timedelta_constructor_call = method_call("datetime.timedelta", [], {"microseconds": decode_call})
-
-        epoch_start = method_call(
-            "datetime.datetime",
-            args=[
-                Constant(value=1970),
-                Constant(value=1),
-                Constant(value=1),
-            ],
-            kwargs={"tzinfo": utc()},
-        )
-
-        sum_op = BinOp(
-            op=Add(),
-            left=epoch_start,
-            right=timedelta_constructor_call,
-        )
-        return [
-            Assign(
-                targets=[dest],
-                value=sum_op,
-            )
-        ]
 
     def _gen_recursive_decode_call(
         self, recursive_type_name: str, src: Name, dest: AST

@@ -1,9 +1,9 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from fastavro._schema_common import PRIMITIVES
-from avroc.util import clean_name, SchemaType
+from avroc.util import clean_name, SchemaType, LogicalTypeError
 from avroc.codegen.compiler import Compiler
-from avroc.codegen.astutil import extend_buffer, call_encoder
+from avroc.codegen.astutil import extend_buffer, call_encoder, mult, add, floor_div, method_call, func_call
 
 INT_MAX_VALUE = (1 << 31) - 1
 INT_MIN_VALUE = -INT_MAX_VALUE
@@ -17,6 +17,7 @@ from ast import (
     Assign,
     Attribute,
     AugAssign,
+    BinOp,
     BoolOp,
     Call,
     Compare,
@@ -37,9 +38,11 @@ from ast import (
     Lt,
     LtE,
     Module,
+    Mult,
     Name,
     Not,
     NotEq,
+    Pow,
     Return,
     Store,
     Subscript,
@@ -66,15 +69,10 @@ class WriterCompiler(Compiler):
 
         body.append(Import(names=[alias(name="numbers")]))
         # Add import statements of low-level writer functions
-        import_from_encoding = []
-        for primitive_type in PRIMITIVES:
-            name = "encode_" + primitive_type
-            import_from_encoding.append(alias(name=name))
-
         body.append(
             ImportFrom(
                 module="avroc.runtime.encoding",
-                names=import_from_encoding,
+                names=[alias(name="*")],
                 level=0,
             )
         )
@@ -142,6 +140,10 @@ class WriterCompiler(Compiler):
             return self._gen_union_encoder(options=schema, buf=buf, msg=msg)
 
         if isinstance(schema, dict):
+            if "logicalType" in schema:
+                return self._gen_logical_encoder(
+                    schema, buf, msg,
+                )
             if schema["type"] in PRIMITIVES:
                 return self._gen_primitive_encoder(
                     primitive_type=schema["type"],
@@ -451,3 +453,50 @@ class WriterCompiler(Compiler):
             # thats left is dict types.
             assert isinstance(schema, dict)
         raise NotImplementedError(f"have not implemented union check for type {schema}")
+
+    def _gen_logical_encoder(self, schema: Dict[str, Any], buf: Name, msg: expr) -> List[stmt]:
+        try:
+            lt = schema["logicalType"]
+            t = schema["type"]
+            call = None
+            if lt == "decimal":
+                if t == "bytes":
+                    call = func_call(
+                        "encode_decimal_bytes",
+                        [msg,
+                         Constant(value=schema["precision"]),
+                         Constant(value=schema.get("scale", 0))],
+                    )
+                elif t == "fixed":
+                    call = func_call(
+                        "encode_decimal_fixed",
+                        [msg,
+                         Constant(value=schema["size"]),
+                         Constant(value=schema["precision"]),
+                         Constant(value=schema.get("scale", 0))],
+                    )
+            elif lt == "uuid" and t == "string":
+                call = func_call("encode_uuid", [msg])
+            elif lt == "date" and t == "int":
+                call = func_call("encode_date", [msg])
+            elif lt == "time-millis" and t == "int":
+                call = func_call("encode_time_millis", [msg])
+            elif lt == "time-micros" and t == "long":
+                call = func_call("encode_time_micros", [msg])
+            elif lt == "timestamp-millis" and t == "long":
+                call = func_call("encode_timestamp_millis", [msg])
+            elif lt == "timestamp-micros" and t == "long":
+                call = func_call("encode_timestamp_micros", [msg])
+
+            if call is None:
+                raise LogicalTypeError("unknown logical type")
+
+            return [extend_buffer(buf, call)]
+
+        except LogicalTypeError:
+            # If a logical type is unknown, or invalid, then we should fall back
+            # and use the underlying Avro type. We do this by clearing the
+            # logicalType field of the schema and calling self._gen_encoder.
+            schema = schema.copy()
+            del schema["logicalType"]
+            return self._gen_encoder(schema, buf, msg)

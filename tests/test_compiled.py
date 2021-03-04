@@ -3,6 +3,7 @@ import avroc.codegen.read
 import avroc.codegen.write
 import fastavro.write
 import fastavro.read
+import fastavro._read
 import pytest
 import decimal
 import datetime
@@ -421,6 +422,16 @@ testcases = [
         label="logical decimal",
         schema={"type": "bytes", "logicalType": "decimal", "precision": 5, "scale": 4},
         message=decimal.Decimal("3.1415"),
+    ),
+    testcase(
+        label="logical decimal under precision",
+        schema={"type": "bytes", "logicalType": "decimal", "precision": 5, "scale": 2},
+        message=decimal.Decimal("3.14"),
+    ),
+    testcase(
+        label="logical decimal positive exponent",
+        schema={"type": "bytes", "logicalType": "decimal", "precision": 5, "scale": 0},
+        message=decimal.Decimal("1.2345e20"),
     ),
     testcase(
         label="logical fixed decimal",
