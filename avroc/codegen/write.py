@@ -135,6 +135,12 @@ class WriterCompiler(Compiler):
                     buf=buf,
                     msg=msg,
                 )
+            else:
+                # Named type reference. Could be recursion?
+                if schema in set(t["name"] for t in self.recursive_types):
+                    # Yep, recursion. Just generate a function call - we'll have
+                    # a separate function to handle this type.
+                    return self._gen_recursive_encode_call(schema, src, dest)
 
         if isinstance(schema, list):
             return self._gen_union_encoder(options=schema, buf=buf, msg=msg)
@@ -500,3 +506,11 @@ class WriterCompiler(Compiler):
             schema = schema.copy()
             del schema["logicalType"]
             return self._gen_encoder(schema, buf, msg)
+
+    def _gen_recursive_encode_call(self, recursive_type_name: str, buf: Name, msg: expr) -> List[stmt]:
+        funcname = self._encoder_name(recursive_type_name)
+        return [extend_buffer(buf, Call(
+            func=funcname,
+            args=[msg],
+            keywords=[],
+        ))]
