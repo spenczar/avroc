@@ -15,9 +15,12 @@ Because enums and fixeds can't contain references, they can never be recursive.
 Only records can, although they might be recursive through a chain that flows
 through some other complex type like an array.
 """
+from __future__ import annotations
+
 from typing import Dict, Set, Optional, Iterable, List, Deque, DefaultDict
 
 from avroc.avro_common import PRIMITIVES
+from avroc.util import SchemaType
 import collections
 
 
@@ -107,7 +110,7 @@ class NamegraphNode:
         return f"NamegraphNode(name={name}, references={refs})"
 
 
-def _schema_to_graph(schema: Dict, names: Dict) -> List[NamegraphNode]:
+def _schema_to_graph(schema: SchemaType, names: Dict) -> List[NamegraphNode]:
     # Convert a schema definition into a graph representation which only
     # includes named-type components.
 
@@ -127,7 +130,7 @@ def _schema_to_graph(schema: Dict, names: Dict) -> List[NamegraphNode]:
 
     elif isinstance(schema, list):
         # Lists are unions of types.
-        result = []
+        result: List[NamegraphNode] = []
         for s in schema:
             result.extend(_schema_to_graph(s, names))
         return result
@@ -167,3 +170,5 @@ def _schema_to_graph(schema: Dict, names: Dict) -> List[NamegraphNode]:
         else:
             # This is a verbosely-defined type name.
             return [names[schema_type]]
+    else:
+        raise TypeError("unexpected type")
