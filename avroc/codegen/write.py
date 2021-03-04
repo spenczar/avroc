@@ -44,6 +44,7 @@ from ast import (
     NotEq,
     Pow,
     Return,
+    Set,
     Store,
     Subscript,
     Tuple,
@@ -76,12 +77,19 @@ class WriterCompiler(Compiler):
                 level=0,
             )
         )
+        body.append(
+            ImportFrom(
+                module="avroc.runtime.typetest",
+                names=[alias(name="*")],
+                level=0,
+            )
+        )
 
         body.append(self.generate_encoder_func(self.schema, self.entrypoint_name))
         for recursive_type in self.recursive_types:
             body.append(
                 self.generate_encoder_func(
-                    name=self._named_type_encoder_name(recursive_type["name"]),
+                    name=self._encoder_name(recursive_type["name"]),
                     schema=recursive_type,
                 )
             )
@@ -94,7 +102,7 @@ class WriterCompiler(Compiler):
         return module
 
     @staticmethod
-    def _named_type_reader_name(name: str) -> str:
+    def _encoder_name(name: str) -> str:
         return "_write_" + clean_name(name)
 
     def generate_encoder_func(self, schema: SchemaType, name: str) -> FunctionDef:
@@ -140,7 +148,7 @@ class WriterCompiler(Compiler):
                 if schema in set(t["name"] for t in self.recursive_types):
                     # Yep, recursion. Just generate a function call - we'll have
                     # a separate function to handle this type.
-                    return self._gen_recursive_encode_call(schema, src, dest)
+                    return self._gen_recursive_encode_call(schema, buf, msg)
 
         if isinstance(schema, list):
             return self._gen_union_encoder(options=schema, buf=buf, msg=msg)
@@ -319,13 +327,6 @@ class WriterCompiler(Compiler):
         case = options[0]
         prev_if = None
 
-        def call_isinstance(args):
-            return Call(
-                func=Name(id="isinstance", ctx=Load()),
-                args=[msg, args],
-                keywords=[],
-            )
-
         for idx, option_schema in enumerate(options):
             # For each option, generate a statement of the general form:
             # if is_<datatype>(msg):
@@ -346,118 +347,68 @@ class WriterCompiler(Compiler):
         return statements
 
     def _gen_union_type_test(self, schema: SchemaType, msg: expr) -> expr:
-        def call_isinstance(args):
-            return Call(
-                func=Name("isinstance", ctx=Load()),
-                args=[msg, args],
-                keywords=[],
-            )
-
         if isinstance(schema, str):
             if schema == "null":
-                # if msg is None:
-                return Compare(left=msg, ops=[Eq()], comparators=[Constant(None)])
+                return func_call("is_null", [msg])
             elif schema == "boolean":
-                # if isinstance(msg, bool):
-                return call_isinstance(Name(id="bool", ctx=Load()))
+                return func_call("is_boolean", [msg])
             elif schema == "string":
-                # if isinstance(msg, str):
-                return call_isinstance(Name(id="str", ctx=Load()))
+                return func_call("is_string", [msg])
             elif schema == "bytes":
-                # if isinstance(msg, (bytes, bytearray)):
-                return call_isinstance(
-                    Tuple(
-                        elts=[
-                            Name(id="bytes", ctx=Load()),
-                            Name(id="bytearray", ctx=Load()),
-                        ],
-                        ctx=Load(),
-                    )
-                )
+                return func_call("is_bytes", [msg])
             elif schema == "int":
-                # if (isinstance(msg, (int, numbers.Integral))
-                #     and INT_MIN_VALUE <= msg <= INT_MAX_VALUE
-                #     and not isinstance(msg, bool)):
-                integral_type = Attribute(
-                    value=Name(id="numbers", ctx=Load()),
-                    attr="Integral",
-                    ctx=Load(),
-                )
-
-                is_int_type = call_isinstance(
-                    Tuple(
-                        elts=[
-                            Name(id="int", ctx=Load()),
-                            integral_type,
-                        ],
-                        ctx=Load(),
-                    ),
-                )
-                is_in_range = Compare(
-                    left=Constant(INT_MIN_VALUE),
-                    ops=[LtE(), LtE()],
-                    comparators=[msg, Constant(INT_MAX_VALUE)],
-                )
-                is_not_bool = UnaryOp(
-                    op=Not(),
-                    operand=call_isinstance(Name(id="bool", ctx=Load())),
-                )
-                return BoolOp(op=And(), values=[is_int_type, is_in_range, is_not_bool])
+                return func_call("is_int", [msg])
             elif schema == "long":
-                # if (isinstance(datum, (int, numbers.Integral))
-                #  and LONG_MIN_VALUE <= datum <= LONG_MAX_VALUE
-                #  and not isinstance(datum, bool))
-                integral_type = Attribute(
-                    value=Name(id="numbers", ctx=Load()),
-                    attr="Integral",
-                    ctx=Load(),
-                )
-
-                is_int_type = call_isinstance(
-                    Tuple(
-                        elts=[
-                            Name(id="int", ctx=Load()),
-                            integral_type,
-                        ],
-                        ctx=Load(),
-                    ),
-                )
-                is_in_range = Compare(
-                    left=Constant(LONG_MIN_VALUE),
-                    ops=[LtE(), LtE()],
-                    comparators=[msg, Constant(LONG_MAX_VALUE)],
-                )
-                is_not_bool = UnaryOp(
-                    op=Not(),
-                    operand=call_isinstance(Name(id="bool", ctx=Load())),
-                )
-                return BoolOp(op=And(), values=[is_int_type, is_in_range, is_not_bool])
+                return func_call("is_long", [msg])
             elif schema == "float":
-                # if (isinstance(datum, (int, float, numbers.Real))
-                #     and not isinstance(datum, bool)):
-                real_type = Attribute(
-                    value=Name(id="numbers", ctx=Load()), attr="Real", ctx=Load()
-                )
-                is_float_type = call_isinstance(
-                    Tuple(
-                        elts=[
-                            Name(id="int", ctx=Load()),
-                            Name(id="float", ctx=Load()),
-                            real_type,
-                        ],
-                        ctx=Load(),
-                    ),
-                )
-                is_not_bool = UnaryOp(
-                    op=Not(),
-                    operand=call_isinstance(Name(id="bool", ctx=Load())),
-                )
-                return BoolOp(op=And(), values=[is_float_type, is_not_bool])
+                return func_call("is_float", [msg])
+            else:
+                typename = schema
+                # Named type reference. Could be recursion.
+                recursive_type_dict = {t["name"]: t for t in self.recursive_types}
+                recursive_schema = recursive_type_dict.get(typename, None)
+                if recursive_schema is not None:
+                    return self._gen_union_type_test(recursive_schema, msg)
 
         else:
             # Union-of-union is explicitly forbidden by the Avro spec, so all
             # thats left is dict types.
-            assert isinstance(schema, dict)
+            assert isinstance(schema, dict), "Union-of-union is forbidden by Avro spec"
+
+        if "logicalType" in schema:
+            lt = schema["logicalType"]
+            if lt == "decimal":
+                return func_call("is_decimal", [msg])
+            elif lt == "uuid":
+                return func_call("is_uuid", [msg])
+            elif lt == "date":
+                return func_call("is_date", [msg])
+            elif lt == "time_millis" or lt == "time_micros":
+                return func_call("is_time", [msg])
+            elif lt == "timestamp_millis" or lt == "timestamp_micros":
+                return func_call("is_timestamp", [msg])
+
+        if schema["type"] in PRIMITIVES:
+            return self._gen_union_type_test(schema["type"], msg)
+
+        if schema["type"] == "array":
+            return func_call("is_array", [msg])
+
+        if schema["type"] == "fixed":
+            return func_call("is_fixed", [msg, schema["size"]])
+
+        if schema["type"] == "enum":
+            symbols = Set(elts=[Constant(value=x) for x in schema["symbols"]])
+            return func_call("is_enum", [msg, symbols])
+
+        if schema["type"] == "map":
+            return func_call("is_map", [msg])
+
+        if schema["type"] == "record":
+            field_names = Set(elts=[Constant(value=f["name"]) for f in schema["fields"]])
+            c = func_call("is_record", [msg, field_names])
+            return c
+
         raise NotImplementedError(f"have not implemented union check for type {schema}")
 
     def _gen_logical_encoder(self, schema: Dict[str, Any], buf: Name, msg: expr) -> List[stmt]:
@@ -470,16 +421,16 @@ class WriterCompiler(Compiler):
                     call = func_call(
                         "encode_decimal_bytes",
                         [msg,
-                         Constant(value=schema["precision"]),
-                         Constant(value=schema.get("scale", 0))],
+                         schema["precision"],
+                         schema.get("scale", 0)],
                     )
                 elif t == "fixed":
                     call = func_call(
                         "encode_decimal_fixed",
                         [msg,
-                         Constant(value=schema["size"]),
-                         Constant(value=schema["precision"]),
-                         Constant(value=schema.get("scale", 0))],
+                         schema["size"],
+                         schema["precision"],
+                         schema.get("scale", 0)],
                     )
             elif lt == "uuid" and t == "string":
                 call = func_call("encode_uuid", [msg])
@@ -509,8 +460,9 @@ class WriterCompiler(Compiler):
 
     def _gen_recursive_encode_call(self, recursive_type_name: str, buf: Name, msg: expr) -> List[stmt]:
         funcname = self._encoder_name(recursive_type_name)
-        return [extend_buffer(buf, Call(
-            func=funcname,
+        c = [extend_buffer(buf, Call(
+            func=Name(id=funcname, ctx=Load()),
             args=[msg],
             keywords=[],
         ))]
+        return c

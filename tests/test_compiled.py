@@ -399,7 +399,56 @@ testcases = [
         },
         message_list=[{"field": v} for v in [None, {"string_val": "abcd"}]],
     ),
+    testcase(
+        label="union of everything",
+        schema=[
+            "int", "long", "null", "boolean", "float", "bytes", "string",
+            {"type": "array", "items": "int"},
+        ],
+        message_list=[
+            1,
+            1<<40,
+            -1<<40,
+            None,
+            False,
+            True,
+            0.0,
+            1.5,
+            b"",
+            b"bytes",
+            "",
+            "stringval",
+            [1, 2, 3],
+            b"123",
+        ]
+    ),
+
+    testcase(
+        label="union of fixed",
+        schema=[
+            {"type": "fixed", "size": 3, "name": "three-byte"},
+            {"type": "fixed", "size": 5, "name": "five-byte"},
+        ],
+        message_list=[
+            b"123",
+            b"12345",
+        ]
+    ),
+    testcase(
+        label="union of logicals",
+        schema=[
+            {"type": "bytes", "logicalType": "decimal", "precision": 5, "scale": 4},
+            {"type": "string", "logicalType": "uuid"},
+            {"type": "int", "logicalType": "date"},
+        ],
+        message_list=[
+            decimal.Decimal("3.1415"),
+            uuid.UUID("f81d4fae-7dec-11d0-a765-00a0c91e6bf6"),
+            datetime.date(2021, 2, 11),
+        ]
+    ),
     testcase(label="optional", schema=["null", "int"], message_list=[1, None]),
+
     testcase(
         label="backwards optional", schema=["int", "null"], message_list=[1, None]
     ),

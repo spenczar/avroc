@@ -33,6 +33,10 @@ def call_encoder(primitive_type: str, msg: Union[expr, int]) -> expr:
     return call
 
 def func_call(name: str, args: List[expr]) -> Call:
+    for idx, a in enumerate(args):
+        if not isinstance(a, expr):
+            args[idx] = Constant(value=a)
+
     return Call(
         func=Name(id=name, ctx=Load()),
         args=args,
