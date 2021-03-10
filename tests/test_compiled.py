@@ -51,7 +51,10 @@ class testcase:
             canonical_buf.seek(0)
             canonical_encoding = canonical_buf.read()
 
-            assert encoded == canonical_encoding
+            if len(self.messages) > 1:
+                assert encoded == canonical_encoding, f"writer byte output mismatch for message idx={i}"
+            else:
+                assert encoded == canonical_encoding, "writer byte output mismatch"
 
 
 testcases = [
