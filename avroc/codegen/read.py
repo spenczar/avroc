@@ -130,7 +130,6 @@ class ReaderCompiler(Compiler):
         Returns an AST describing a function which can decode an Avro message from a
         IO[bytes] source. The message is parsed according to the given schema.
         """
-        src_var = Name(id="src", ctx=Load())
         result_var = Name(id=self.new_variable("result"), ctx=Store())
         func = FunctionDef(
             name=name,
@@ -145,97 +144,85 @@ class ReaderCompiler(Compiler):
             decorator_list=[],
         )
 
-        func.body.extend(self._gen_decode(schema, src_var, result_var))
+        func.body.extend(self._gen_decode(schema, result_var))
         func.body.append(Return(value=Name(id=result_var.id, ctx=Load())))
         return func
 
-    def _gen_decode(self, schema: SchemaType, src: Name, dest: AST) -> List[stmt]:
+    def _gen_decode(self, schema: SchemaType, dest: AST) -> List[stmt]:
         """
-        Returns a sequence of statements which will read data from src and write
-        the deserialized value into dest.
+        Returns a sequence of statements which will read data and write the
+        deserialized value into dest.
         """
         if isinstance(schema, str):
             if schema in PRIMITIVES:
-                return self._gen_primitive_decode(
-                    primitive_type=schema, src=src, dest=dest
-                )
+                return self._gen_primitive_decode(primitive_type=schema, dest=dest)
             else:
                 # Named type reference. Could be recursion?
                 if schema in set(t["name"] for t in self.recursive_types):
                     # Yep, recursion. Just generate a function call - we'll have
                     # a separate function to handle this type.
-                    return self._gen_recursive_decode_call(schema, src, dest)
+                    return self._gen_recursive_decode_call(schema, dest)
         if isinstance(schema, list):
             return self._gen_union_decode(
                 options=schema,
-                src=src,
                 dest=dest,
             )
         if isinstance(schema, dict):
             if "logicalType" in schema:
                 return self._gen_logical_decode(
                     schema=schema,
-                    src=src,
                     dest=dest,
                 )
             schema_type = schema["type"]
             if schema_type in PRIMITIVES:
                 return self._gen_primitive_decode(
                     primitive_type=schema_type,
-                    src=src,
                     dest=dest,
                 )
             if schema_type == "record":
                 return self._gen_record_decode(
                     schema=schema,
-                    src=src,
                     dest=dest,
                 )
             if schema_type == "array":
                 return self._gen_array_decode(
                     item_schema=schema["items"],
-                    src=src,
                     dest=dest,
                 )
             if schema_type == "map":
                 return self._gen_map_decode(
                     value_schema=schema["values"],
-                    src=src,
                     dest=dest,
                 )
             if schema_type == "fixed":
                 return self._gen_fixed_decode(
                     size=schema["size"],
-                    src=src,
                     dest=dest,
                 )
             if schema_type == "enum":
                 return self._gen_enum_decode(
                     symbols=schema["symbols"],
                     default=schema.get("default"),
-                    src=src,
                     dest=dest,
                 )
 
         raise NotImplementedError(f"Schema type not implemented: {schema}")
 
-    def _gen_union_decode(
-        self, options: List[SchemaType], src: Name, dest: AST
-    ) -> List[stmt]:
+    def _gen_union_decode(self, options: List[SchemaType], dest: AST) -> List[stmt]:
 
         # Special case: fields like '["null", "long"] which represent an
         # optional field.
         if len(options) == 2:
             if options[0] == "null":
-                return self._gen_optional_decode(1, options[1], src, dest)
+                return self._gen_optional_decode(1, options[1], dest)
             if options[1] == "null":
-                return self._gen_optional_decode(0, options[0], src, dest)
+                return self._gen_optional_decode(0, options[0], dest)
 
         statements: List[stmt] = []
         # Read a long to figure out which option in the union is chosen.
         idx_var = self.new_variable("union_choice")
         idx_var_dest = Name(id=idx_var, ctx=Store())
-        statements.extend(self._gen_primitive_decode("long", src, idx_var_dest))
+        statements.extend(self._gen_primitive_decode("long", idx_var_dest))
 
         idx_var_ref = Name(id=idx_var, ctx=Load())
         prev_if = None
@@ -245,7 +232,7 @@ class ReaderCompiler(Compiler):
             )
             if_stmt = If(
                 test=if_idx_matches,
-                body=self._gen_decode(option, src, dest),
+                body=self._gen_decode(option, dest),
                 orelse=[],
             )
 
@@ -256,12 +243,10 @@ class ReaderCompiler(Compiler):
             prev_if = if_stmt
         return statements
 
-    def _gen_optional_decode(
-        self, idx: int, schema: SchemaType, src: Name, dest: AST
-    ) -> List[stmt]:
+    def _gen_optional_decode(self, idx: int, schema: SchemaType, dest: AST) -> List[stmt]:
         statements: List[stmt] = []
         is_populated = Compare(
-            left=call_decoder("long", src),
+            left=call_decoder("long"),
             ops=[Eq()],
             comparators=[Constant(idx)],
         )
@@ -272,7 +257,7 @@ class ReaderCompiler(Compiler):
 
             if_expr = IfExp(
                 test=is_populated,
-                body=call_decoder(schema, src),
+                body=call_decoder(schema),
                 orelse=Constant(None),
             )
             assignment = Assign(
@@ -284,13 +269,13 @@ class ReaderCompiler(Compiler):
             # It takes more than one line to read the value, so we need a real if block.
             if_stmt = If(
                 test=is_populated,
-                body=self._gen_decode(schema, src, dest),
+                body=self._gen_decode(schema, dest),
                 orelse=[Assign(targets=[dest], value=Constant(None))],
             )
             statements.append(if_stmt)
         return statements
 
-    def _gen_record_decode(self, schema: Dict, src: Name, dest: AST) -> List[stmt]:
+    def _gen_record_decode(self, schema: Dict, dest: AST) -> List[stmt]:
         statements: List[stmt] = []
 
         # Construct a new empty dictionary to hold the record contents.
@@ -317,7 +302,7 @@ class ReaderCompiler(Compiler):
 
             # Generate the statements required to read that field's type, and to
             # store it into field_dest.
-            read_statements = self._gen_decode(field["type"], src, field_dest)
+            read_statements = self._gen_decode(field["type"], field_dest)
             statements.extend(read_statements)
 
         # Now that we have a fully constructed record, write it into the
@@ -332,7 +317,7 @@ class ReaderCompiler(Compiler):
         return statements
 
     def _gen_array_decode(
-        self, item_schema: SchemaType, src: Name, dest: AST
+        self, item_schema: SchemaType, dest: AST
     ) -> List[stmt]:
         """
         Returns a sequence of statements which will deserialize an array of given
@@ -365,7 +350,7 @@ class ReaderCompiler(Compiler):
         # ... read a value...
         value_varname = self.new_variable("array_val")
         value_dest = Name(id=value_varname, ctx=Store())
-        read_statements = self._gen_decode(item_schema, src, value_dest)
+        read_statements = self._gen_decode(item_schema, value_dest)
         for_each_message.extend(read_statements)
 
         # ... and append it to the list.
@@ -383,7 +368,7 @@ class ReaderCompiler(Compiler):
         )
         for_each_message.append(list_append_method_call)
 
-        statements.extend(self._gen_block_decode(for_each_message, src))
+        statements.extend(self._gen_block_decode(for_each_message))
 
         # Finally, assign the list we have constructed into the destination AST node.
         assign_result = Assign(
@@ -393,9 +378,7 @@ class ReaderCompiler(Compiler):
         statements.append(assign_result)
         return statements
 
-    def _gen_map_decode(
-        self, value_schema: SchemaType, src: Name, dest: AST
-    ) -> List[stmt]:
+    def _gen_map_decode(self, value_schema: SchemaType, dest: AST) -> List[stmt]:
         """
         Returns a sequence of statements which will deserialize a map with given
         value type from src into dest.
@@ -425,16 +408,16 @@ class ReaderCompiler(Compiler):
         # ... read a string key...
         key_varname = self.new_variable("key")
         key_dest = Name(id=key_varname, ctx=Store())
-        for_each_message.extend(self._gen_primitive_decode("string", src, key_dest))
+        for_each_message.extend(self._gen_primitive_decode("string", key_dest))
         # ... and read the corresponding value.
         value_dest = Subscript(
             value=Name(id=map_varname, ctx=Load()),
             slice=Index(Name(id=key_varname, ctx=Load())),
             ctx=Store(),
         )
-        for_each_message.extend(self._gen_decode(value_schema, src, value_dest))
+        for_each_message.extend(self._gen_decode(value_schema, value_dest))
 
-        statements.extend(self._gen_block_decode(for_each_message, src))
+        statements.extend(self._gen_block_decode(for_each_message))
 
         # Finally, assign our resulting map to the destination target.
         statements.append(
@@ -445,7 +428,7 @@ class ReaderCompiler(Compiler):
         )
         return statements
 
-    def _gen_block_decode(self, for_each_message: List[stmt], src: Name) -> List[stmt]:
+    def _gen_block_decode(self, for_each_message: List[stmt]) -> List[stmt]:
         """
         Returns a series of statements which represent iteration over an Avro record
         block, like are used for arrays and maps.
@@ -464,7 +447,7 @@ class ReaderCompiler(Compiler):
         statements: List[stmt] = []
         decode_block_call = Call(
             func=Name(id="decode_block", ctx=Load()),
-            args=[src],
+            args=[Name(id="src", ctx=Load())],
             keywords=[],
         )
 
@@ -478,7 +461,7 @@ class ReaderCompiler(Compiler):
         return statements
 
     def _gen_enum_decode(
-        self, symbols: List[str], default: Optional[str], src: Name, dest: AST
+        self, symbols: List[str], default: Optional[str], dest: AST
     ) -> List[stmt]:
         statements: List[stmt] = []
 
@@ -495,7 +478,7 @@ class ReaderCompiler(Compiler):
                 attr="get",
                 ctx=Load(),
             ),
-            args=[call_decoder("long", src)],
+            args=[call_decoder("long")],
             keywords=[],
         )
 
@@ -510,10 +493,10 @@ class ReaderCompiler(Compiler):
         )
         return statements
 
-    def _gen_fixed_decode(self, size: int, src: Name, dest: AST) -> List[stmt]:
+    def _gen_fixed_decode(self, size: int, dest: AST) -> List[stmt]:
         # Call dest = src.read(size).
         read = Call(
-            func=Attribute(value=src, attr="read", ctx=Load()),
+            func=Attribute(value=Name(id="src", ctx=Load()), attr="read", ctx=Load()),
             args=[Constant(value=size)],
             keywords=[],
         )
@@ -524,9 +507,7 @@ class ReaderCompiler(Compiler):
             )
         ]
 
-    def _gen_primitive_decode(
-        self, primitive_type: str, src: Name, dest: AST
-    ) -> List[stmt]:
+    def _gen_primitive_decode(self, primitive_type: str, dest: AST) -> List[stmt]:
         """
         Returns a sequence of statements which will deserialize a given primitive
         type from src into dest.
@@ -540,13 +521,12 @@ class ReaderCompiler(Compiler):
 
         statement = Assign(
             targets=[dest],
-            value=call_decoder(primitive_type, src),
+            value=call_decoder(primitive_type),
         )
         return [statement]
 
-    def _gen_logical_decode(
-        self, schema: Dict[str, Any], src: Name, dest: AST
-    ) -> List[stmt]:
+    def _gen_logical_decode(self, schema: Dict[str, Any], dest: AST) -> List[stmt]:
+        src = Name(id="src", ctx=Load())
         try:
             lt = schema["logicalType"]
             t = schema["type"]
@@ -582,10 +562,10 @@ class ReaderCompiler(Compiler):
             # logicalType field of the schema and calling self._gen_decode.
             schema = schema.copy()
             del schema["logicalType"]
-            return self._gen_decode(schema, src, dest)
+            return self._gen_decode(schema, dest)
 
     def _gen_recursive_decode_call(
-        self, recursive_type_name: str, src: Name, dest: AST
+        self, recursive_type_name: str, dest: AST
     ) -> List[stmt]:
         funcname = self._decoder_name(recursive_type_name)
         return [
@@ -593,7 +573,7 @@ class ReaderCompiler(Compiler):
                 targets=[dest],
                 value=Call(
                     func=Name(id=funcname, ctx=Load()),
-                    args=[src],
+                    args=[Name(id="src", ctx=Load())],
                     keywords=[],
                 ),
             )

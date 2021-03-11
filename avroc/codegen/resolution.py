@@ -2,8 +2,9 @@ from typing import List, Optional
 
 from avroc.avro_common import PRIMITIVES, is_primitive_schema, schema_type
 from avroc.codegen.read import ReaderCompiler
-from avroc.codegen.astutil import call_decoder
-from avroc.util import SchemaType
+from avroc.codegen.errors import SchemaResolutionError
+from avroc.codegen.astutil import call_decoder, literal_from_default
+from avroc.util import SchemaType, clean_name
 
 from ast import (
     Add,
@@ -52,7 +53,7 @@ from ast import (
 class ResolvedReaderCompiler(ReaderCompiler):
     def __init__(self, writer_schema: SchemaType, reader_schema: SchemaType):
         if not schemas_match(writer_schema, reader_schema):
-            raise ValueError("schemas do not match")
+            raise SchemaResolutionError(writer_schema, reader_schema, "schemas do not match")
         self.reader_schema = reader_schema
         self.writer_schema = writer_schema
         super(ResolvedReaderCompiler, self).__init__(writer_schema)
@@ -104,7 +105,6 @@ class ResolvedReaderCompiler(ReaderCompiler):
         IO[bytes] source. The data is decoded from the writer's schema and into
         a message shaped according to the reader's schema.
         """
-        src_var = Name(id="src", ctx=Load())
         result_var = Name(id=self.new_variable("result"), ctx=Store())
         func = FunctionDef(
             name=name,
@@ -119,11 +119,11 @@ class ResolvedReaderCompiler(ReaderCompiler):
             decorator_list=[],
         )
 
-        func.body.extend(self._gen_resolved_decode(writer_schema, reader_schema, src_var, result_var))
+        func.body.extend(self._gen_resolved_decode(writer_schema, reader_schema, result_var))
         func.body.append(Return(value=Name(id=result_var.id, ctx=Load())))
         return func
 
-    def _gen_resolved_decode(self, writer_schema: SchemaType, reader_schema: SchemaType, src: Name, dest: AST) -> List[stmt]:
+    def _gen_resolved_decode(self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST) -> List[stmt]:
         """
         It is an error if the two schemas do not match.
 
@@ -203,47 +203,65 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         # Both are primitive types:
         if writer_type in PRIMITIVES and reader_type in PRIMITIVES:
-            return self._gen_type_promoting_primitive_decode(writer_type, reader_type, src, dest)
+            return self._gen_type_promoting_primitive_decode(writer_type, reader_type, dest)
+
+        # Named type references:
+        if isinstance(writer_schema, str) and writer_type not in PRIMITIVES:
+            raise NotImplementedError(f"named type references are not implemented, so can't handle writer schema '{writer_schema}'")
+        if isinstance(reader_schema, str) and reader_type not in PRIMITIVES:
+            raise NotImplementedError(f"named type references are not implemented, so can't handle reader schema '{reader_schema}'")
 
         if writer_type == "union" and reader_type == "union":
             assert isinstance(writer_schema, list)
             assert isinstance(reader_schema, list)
-            pass
+            raise NotImplementedError("reading unions is not implemented")
         if writer_type == "union":
             assert isinstance(writer_schema, list)
-            return self._gen_read_from_union(writer_schema, reader_schema, src, dest)
+            return self._gen_read_from_union(writer_schema, reader_schema, dest)
         if reader_type == "union":
             assert isinstance(reader_schema, list)
-            pass
+            raise NotImplementedError("reading into unions is not implemented")
 
         # At this point, we're sure the schemas are dictionaries.
         assert isinstance(writer_schema, dict) and isinstance(reader_schema, dict)
         if writer_type == "enum" and reader_type == "enum":
-            return self._gen_enum_decode(writer_schema["symbols"], reader_schema["symbols"], reader_schema.get("default"), src, dest)
+            return self._gen_enum_decode(writer_schema["symbols"], reader_schema["symbols"], reader_schema.get("default"), dest)
+        if writer_type == "record" and reader_type == "record":
+            return self._gen_record_decode(writer_schema, reader_schema, dest)
 
+        if writer_type == "array" and reader_type == "array":
+            return self._gen_array_decode(writer_schema["items"], reader_schema["items"], dest)
 
-    def _gen_type_promoting_primitive_decode(self, writer_schema: str, reader_schema: str, src: Name, dest: AST) -> List[stmt]:
+        if writer_type == "map" and reader_type == "map":
+            return self._gen_map_decode(writer_schema["values"], reader_schema["values"], dest)
+
+        if writer_type == "fixed" and reader_type == "fixed":
+            return self._gen_fixed_decode(reader_schema["size"], dest)
+
+        raise SchemaResolutionError(writer_schema, reader_schema, "reader and writer schemas are incompatible")
+
+    def _gen_type_promoting_primitive_decode(self, writer_schema: str, reader_schema: str, dest: AST) -> List[stmt]:
         """
         Generate a series of statements that will read a value according to the
         writer's schema, and then promote it into the reader's schema type.
         """
         # Simple case: identical primitives.
         if writer_schema == reader_schema:
-            return self._gen_primitive_decode(writer_schema, src, dest)
+            return self._gen_primitive_decode(writer_schema, dest)
 
         # Reader has a promoted type, but one which doesn't take a type
         # conversion:
         if writer_schema == "int" and reader_schema == "long":
-            return self._gen_primitive_decode("int", src, dest)
+            return self._gen_primitive_decode("int", dest)
         if writer_schema == "float" and reader_schema == "double":
-            return self._gen_primitive_decode("float", src, dest)
+            return self._gen_primitive_decode("float", dest)
 
         # Complex case: actually need to promote with a typecast.
         statements: List[stmt] = []
         # Decode the written value into a temporary variable.
         tmp_var = self.new_variable(f"{writer_schema}_value")
         tmp_dest = Name(id=tmp_var, ctx=Store())
-        statements.extend(self._gen_primitive_decode(writer_schema, src, tmp_dest))
+        statements.extend(self._gen_primitive_decode(writer_schema, tmp_dest))
 
         # Cast the temporary variable into the final type, assigning to dest.
         tmp_src = Name(id=tmp_var, ctx=Load())
@@ -278,7 +296,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 keywords=[],
             )
         else:
-            raise ValueError(f"unable to promote writer schema {writer_schema} to reader schema {reader_schema}")
+            raise SchemaResolutionError(writer_schema, reader_schema, "primitive types are incompatible")
         assignment = Assign(
             targets=[dest],
             value=type_cast,
@@ -286,7 +304,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         statements.append(assignment)
         return statements
 
-    def _gen_enum_decode(self, writer_symbols: List[str], reader_symbols: List[str], reader_default: Optional[str], src: Name, dest: AST) -> List[stmt]:
+    def _gen_enum_decode(self, writer_symbols: List[str], reader_symbols: List[str], reader_default: Optional[str], dest: AST) -> List[stmt]:
         """
         if the writer's symbol is not present in the reader's enum and the reader
         has a default value, then that value is used, otherwise an error is
@@ -312,7 +330,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             # dict[decode_long(src)]
             dict_lookup = Subscript(
                 value=enum_map,
-                slice=Index(value=call_decoder("long", src)),
+                slice=Index(value=call_decoder("long")),
                 ctx=Load(),
             )
         else:
@@ -323,14 +341,14 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     attr="get",
                     ctx=Load(),
                 ),
-                args=[call_decoder("long", src)],
+                args=[call_decoder("long")],
                 keywords=[],
             )
             dict_lookup.args.append(Constant(value=reader_default))
 
         return [Assign(targets=[dest], value=dict_lookup)]
 
-    def _gen_read_from_union(self, writer_schema: List[SchemaType], reader_schema: SchemaType, src: Name, dest: AST) -> List[stmt]:
+    def _gen_read_from_union(self, writer_schema: List[SchemaType], reader_schema: SchemaType, dest: AST) -> List[stmt]:
         """
         Read data when the writer specified a union, but the reader did not.
 
@@ -351,7 +369,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         # Read a long to figure out which option in the union is chosen.
         idx_var = self.new_variable("union_choice")
         idx_var_dest = Name(id=idx_var, ctx=Store())
-        statements.extend(self._gen_primitive_decode("long", src, idx_var_dest))
+        statements.extend(self._gen_primitive_decode("long", idx_var_dest))
 
         idx_var_ref = Name(id=idx_var, ctx=Load())
         prev_if = None
@@ -371,7 +389,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             if schemas_match(option, reader_schema):
                 # For options which can be cast into the reader's schema, generate a
                 # normal 'decode' statement (and do any casting necessary).
-                if_stmt.body = self._gen_resolved_decode(option, reader_schema, src, dest)
+                if_stmt.body = self._gen_resolved_decode(option, reader_schema, dest)
                 any_legal = True
             else:
                 # For options which can't be cast, raise an error.
@@ -386,8 +404,307 @@ class ResolvedReaderCompiler(ReaderCompiler):
             prev_if = if_stmt
 
         if not any_legal:
-            raise ValueError("none of the options for the writer union can be resolved to reader's schema")
+            raise SchemaResolutionError(
+                writer_schema, reader_schema,
+                "none of the options for the writer union can be resolved to reader's schema")
         return statements
+
+    def _gen_record_decode(self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST) -> List[stmt]:
+
+        reader_fields_by_name = {f["name"]: f for f in reader_schema["fields"]}
+        writer_fields_by_name = {f["name"]: f for f in writer_schema["fields"]}
+        # Construct a new dictionary to hold the record contents. If there are
+        # any defaults, set those in the literal dictionary. Otherwise, make an
+        # empty one.
+        record_value = DictLiteral(keys=[], values=[])
+        for field in reader_schema["fields"]:
+            if field["name"] not in writer_fields_by_name:
+                if "default" in field:
+                    record_value.keys.append(Constant(value=field["name"]))
+                    record_value.values.append(literal_from_default(field["default"], field["type"]))
+                else:
+                    raise SchemaResolutionError(
+                        writer_schema,
+                        reader_schema,
+                        f"missing field {field['name']} from writer schema and no default is set")
+
+        # We've constructed the AST node representing a dictionary literal. Now,
+        # assign it to a variable.
+        record_value_name = self.new_variable(reader_schema["name"])
+        statements: List[stmt] = []
+        statements.append(Assign(
+            targets=[Name(id=record_value_name, ctx=Store())],
+            value=record_value,
+        ))
+
+        # Fill in the fields based on the writer's order.
+        for writer_field in writer_schema["fields"]:
+            # If the writer's field is present in the reader, read it.
+            # Otherwise, skip it.
+            if writer_field["name"] in reader_fields_by_name:
+                reader_field = reader_fields_by_name[writer_field["name"]]
+                field_dest = Subscript(
+                    value=Name(id=record_value_name, ctx=Load()),
+                    slice=Index(value=Constant(value=reader_field["name"])),
+                    ctx=Store(),
+                )
+                statements.extend(self._gen_resolved_decode(writer_field, reader_field, field_dest))
+            else:
+                statements.extend(self._gen_skip(writer_field["type"]))
+
+        # Assign the created object to the target dest
+        statements.append(
+            Assign(targets=[dest],
+                   value=Name(id=record_value_name, ctx=Load()),
+            ),
+        )
+        return statements
+
+    def _gen_array_decode(self, writer_item_schema: SchemaType, reader_item_schema: SchemaType, dest: AST) -> List[stmt]:
+        """
+        Generate statements to decode an array of data, applying the schema
+        resolution argument to the array item schemas.
+        """
+        statements: List[stmt] = []
+
+        # Create a new empty list to hold the values we'll read.
+        name = "array_"
+        if isinstance(reader_item_schema, dict):
+            if "name" in reader_item_schema:
+                name += reader_item_schema["name"]
+            elif isinstance(reader_item_schema["type"], str):
+                name += reader_item_schema["type"]
+        elif isinstance(reader_item_schema, str):
+            name += reader_item_schema
+        name = clean_name(name)
+        list_varname = self.new_variable(name)
+
+        assign_stmt = Assign(
+            targets=[Name(id=list_varname, ctx=Store())],
+            value=ListLiteral(elts=[], ctx=Load()),
+        )
+        statements.append(assign_stmt)
+
+        # For each message in the array...
+        for_each_message: List[stmt] = []
+
+        # ... read a value...
+        value_varname = self.new_variable("array_val")
+        value_dest = Name(id=value_varname, ctx=Store())
+        read_statements = self._gen_resolved_decode(writer_item_schema, reader_item_schema, value_dest)
+        for_each_message.extend(read_statements)
+
+        # ... and append it to the list.
+        list_append_method = Attribute(
+            value=Name(id=list_varname, ctx=Load()),
+            attr="append",
+            ctx=Load(),
+        )
+        list_append_method_call = Expr(
+            Call(
+                func=list_append_method,
+                args=[Name(id=value_varname, ctx=Load())],
+                keywords=[],
+            )
+        )
+        for_each_message.append(list_append_method_call)
+
+        statements.extend(self._gen_block_decode(for_each_message))
+
+        # Finally, assign the list we have constructed into the destination AST
+        # node.
+        assign_result = Assign(
+            targets=[dest],
+            value=Name(id=list_varname, ctx=Load()),
+        )
+        statements.append(assign_result)
+        return statements
+
+    def _gen_map_decode(self, writer_values: SchemaType, reader_values: SchemaType, dest: AST) -> List[stmt]:
+        """
+        Generate statements to decode a map of data, applying the schema resolution
+        argument to the map value schemas.
+        """
+        statements: List[stmt] = []
+
+        name = "map_"
+        if isinstance(reader_values, dict):
+            if "name" in reader_values:
+                name += reader_values["name"]
+            elif "type" in reader_values and isinstance(reader_values["type"], str):
+                name += reader_values["type"]
+        elif isinstance(reader_values, str):
+            name += reader_values
+        name = clean_name(name)
+
+        map_varname = self.new_variable(name)
+        assign_stmt = Assign(
+            targets=[Name(id=map_varname, ctx=Store())],
+            value=DictLiteral(keys=[], values=[]),
+        )
+        statements.append(assign_stmt)
+
+        # For each message in a block...
+        for_each_message = []
+
+        # ... read a string key...
+        key_varname = self.new_variable("key")
+        key_dest = Name(id=key_varname, ctx=Store())
+        for_each_message.extend(self._gen_primitive_decode("string", key_dest))
+        # ... and read the corresponding value.
+        value_dest = Subscript(
+            value=Name(id=map_varname, ctx=Load()),
+            slice=Index(Name(id=key_varname, ctx=Load())),
+            ctx=Store(),
+        )
+        for_each_message.extend(self._gen_resolved_decode(writer_values, reader_values, value_dest))
+
+        statements.extend(self._gen_block_decode(for_each_message))
+
+        # Finally, assign our resulting map to the destination target.
+        statements.append(
+            Assign(
+                targets=[dest],
+                value=Name(id=map_varname, ctx=Load()),
+            )
+        )
+        return statements
+
+    ### Skip Methods ###
+    def _gen_skip(self, schema: SchemaType) -> List[stmt]:
+        """
+        Generate code to skip data that follows a given schema.
+        """
+        if isinstance(schema, str):
+            if schema in PRIMITIVES:
+                return self._gen_skip_primitive(schema)
+            else:
+                raise NotImplementedError(f"skip not implemented for named types, have {schema}")
+
+        if isinstance(schema, list):
+            return self._gen_skip_union(schema)
+
+        assert isinstance(schema, dict)
+
+        if schema["type"] in PRIMITIVES:
+            return self._gen_skip_primitive(schema["type"])
+
+        if schema["type"] == "record":
+            return self._gen_skip_record(schema)
+
+        if schema["type"] == "map":
+            return self._gen_skip_map(schema["values"])
+
+        if schema["type"] == "array":
+            return self._gen_skip_array(schema["items"])
+
+        if schema["type"] == "fixed":
+            return self._gen_skip_fixed(schema["size"])
+
+        if schema["type"] == "enum":
+            return self._gen_skip_enum()
+
+        raise NotImplementedError(f"skip not implemented for schema {schema}")
+
+    def _gen_skip_primitive(self, schema: str) -> List[stmt]:
+        """
+        Generate code to skip a single primitive value.
+        """
+        if schema == "null":
+            return []
+        return [Expr(
+            value=Call(
+                func=Name(id="skip_" + schema, ctx=Load()),
+                args=[Name(id="src", ctx=Load())],
+                keywords=[],
+                ),
+            )]
+
+    def _gen_skip_union(self, options: List[SchemaType]) -> List[stmt]:
+        """
+        Generate code to skip a union value.
+        """
+        # Union is encoded as a long which indexes into the options list, and
+        # then a value. So, start by reading the long.
+        statements: List[stmt] = []
+        idx_var_name = self.new_variable("union_choice")
+        idx_var_dest = Name(id=idx_var_name, ctx=Store())
+        statements.extend(self._gen_primitive_decode("long", idx_var_dest))
+
+        # Now, for each option, generate code to skip whatever is encoded.
+
+        prev_if = None
+        for idx, option in enumerate(options):
+            if isinstance(option, str) and option == "null":
+                # Skip nulls, since there is nothing to be done with them anyway.
+                continue
+            if_idx_matches = Compare(
+                left=Name(id=idx_var_name, ctx=Load()),
+                ops=[Eq()],
+                comparators=[Constant(idx)]
+            )
+            if_stmt = If(
+                test=if_idx_matches,
+                body=self._gen_skip(option),
+                orelse=[],
+            )
+
+            if prev_if is None:
+                statements.append(if_stmt)
+            else:
+                prev_if.orelse = [if_stmt]
+            prev_if = if_stmt
+        return statements
+
+    def _gen_skip_record(self, schema: dict) -> List[stmt]:
+        """
+        Generate statements to skip an entire record.
+        """
+        statements: List[stmt] = []
+        for field in schema["fields"]:
+            statements.extend(self._gen_skip(field["type"]))
+        return statements
+
+    def _gen_skip_array(self, item_schema: SchemaType) -> List[stmt]:
+        """
+        Generate statements to skip an array of data.
+        """
+        for_each_message = self._gen_skip(item_schema)
+        return self._gen_block_decode(for_each_message)
+
+    def _gen_skip_map(self, value_schema: SchemaType) -> List[stmt]:
+        """
+        Generate statements to skip an array of data.
+        """
+        # For each message...
+        for_each_message: List[stmt] = []
+        # ... skip the string key...
+        for_each_message.extend(self._gen_skip_primitive("string"))
+        # ... and then skip the value.
+        for_each_message.extend(self._gen_skip(value_schema))
+        return self._gen_block_decode(for_each_message)
+
+    def _gen_skip_fixed(self, size: int) -> List[stmt]:
+        """
+        Generate statements to skip a fixed message.
+        """
+        # Just src.read(size).
+        return [Expr(
+            value=Call(
+                func=Attribute(
+                    value=Name(id="src", ctx=Load()),
+                    attr="read",
+                    ctx=Load(),
+                ),
+                args=[Constant(value=size)],
+                keywords=[],
+        ))]
+
+    def _gen_skip_enum(self) -> List[stmt]:
+        """
+        Generate statements to skip an enum.
+        """
+        return self._gen_skip_primitive("long")
 
     def _gen_schema_error(self, msg: str) -> stmt:
         """
@@ -423,9 +740,9 @@ def schemas_match(writer: SchemaType, reader: SchemaType) -> bool:
     reader_type = schema_type(reader)
 
     if writer_type == "array" and reader_type == "array":
-        return schemas_match[writer["items"], reader["items"]]
+        return schemas_match(writer["items"], reader["items"])
     if writer_type == "map" and reader_type == "map":
-        return schemas_match[writer["values"], reader["values"]]
+        return schemas_match(writer["values"], reader["values"])
     if writer_type == "enum" and reader_type == "enum":
         return writer["name"] == reader["name"]
     if writer_type == "fixed" and reader_type == "fixed":
