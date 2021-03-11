@@ -169,7 +169,7 @@ def encode_decimal_bytes(msg: decimal.Decimal, precision: int, scale: int = 0) -
     return encode_bytes(as_bytes)
 
 
-def decimal_from_string(raw: str, precision: int, scale: int=0) -> decimal.Decimal:
+def decimal_from_string(raw: str, precision: int, scale: int = 0) -> decimal.Decimal:
     return _deserialize_decimal(raw.encode(), precision, scale)
 
 

@@ -243,7 +243,9 @@ class ReaderCompiler(Compiler):
             prev_if = if_stmt
         return statements
 
-    def _gen_optional_decode(self, idx: int, schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_optional_decode(
+        self, idx: int, schema: SchemaType, dest: AST
+    ) -> List[stmt]:
         statements: List[stmt] = []
         is_populated = Compare(
             left=call_decoder("long"),
@@ -316,9 +318,7 @@ class ReaderCompiler(Compiler):
         )
         return statements
 
-    def _gen_array_decode(
-        self, item_schema: SchemaType, dest: AST
-    ) -> List[stmt]:
+    def _gen_array_decode(self, item_schema: SchemaType, dest: AST) -> List[stmt]:
         """
         Returns a sequence of statements which will deserialize an array of given
         type from src into dest.

@@ -8,6 +8,7 @@ from fastavro.schema import expand_schema
 
 from avroc.codegen.graph import find_recursive_types
 from avroc.util import SchemaType, rand_str
+from avroc.schema import expand_names
 
 
 if sys.version_info >= (3, 9):
@@ -31,6 +32,9 @@ class Compiler:
     # themselves recursively when reading.
     recursive_types: List[Dict]
 
+    # Types by absolute name, or by alias.
+    named_types: Dict[str, SchemaType]
+
     pure_python: bool
 
     entrypoint_name: str
@@ -38,7 +42,7 @@ class Compiler:
     debug: bool = True
 
     def __init__(self, schema: SchemaType, entrypoint_name: str):
-        self.schema = expand_schema(schema)  # type: ignore
+        self.schema = expand_names(schema)
         self.entrypoint_name = entrypoint_name
 
         self.variable_name_counts = collections.defaultdict(int)

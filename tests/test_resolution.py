@@ -7,6 +7,7 @@ import uuid
 import decimal
 import datetime
 
+
 class testcase:
     def __init__(self, label, writer_schema, reader_schema, input_msg, output_msg):
         self.label = label
@@ -17,14 +18,19 @@ class testcase:
 
     def assert_reader(self):
         message_encoded = io.BytesIO()
-        fastavro.write.schemaless_writer(message_encoded, self.writer_schema, self.input_msg)
+        fastavro.write.schemaless_writer(
+            message_encoded, self.writer_schema, self.input_msg
+        )
         message_encoded.seek(0)
 
-        c = avroc.codegen.resolution.ResolvedReaderCompiler(self.writer_schema, self.reader_schema)
+        c = avroc.codegen.resolution.ResolvedReaderCompiler(
+            self.writer_schema, self.reader_schema
+        )
         reader = c.compile()
         have = reader(message_encoded)
         assert have == self.output_msg, "reader behavior mismatch"
         assert type(have) == type(self.output_msg), "reader type mismatch"
+
 
 class failcase:
     def __init__(self, label, writer_schema, reader_schema, input_msg, error_matcher):
@@ -36,12 +42,16 @@ class failcase:
 
     def assert_reader(self):
         message_encoded = io.BytesIO()
-        fastavro.write.schemaless_writer(message_encoded, self.writer_schema, self.input_msg)
+        fastavro.write.schemaless_writer(
+            message_encoded, self.writer_schema, self.input_msg
+        )
         message_encoded.seek(0)
 
         failed = False
         try:
-            c = avroc.codegen.resolution.ResolvedReaderCompiler(self.writer_schema, self.reader_schema)
+            c = avroc.codegen.resolution.ResolvedReaderCompiler(
+                self.writer_schema, self.reader_schema
+            )
             reader = c.compile()
         except Exception as e:
             failed = True
@@ -54,6 +64,7 @@ class failcase:
             failed = True
             assert self.error_matcher in repr(e)
         assert failed, "expected a failure"
+
 
 type_promotion_testcases = [
     testcase(
@@ -96,69 +107,118 @@ type_promotion_testcases = [
         writer_schema="string",
         reader_schema="bytes",
         input_msg="Hello! 😀",
-        output_msg=b'Hello! \xf0\x9f\x98\x80',
+        output_msg=b"Hello! \xf0\x9f\x98\x80",
     ),
     testcase(
         label="bytes to string",
         writer_schema="bytes",
         reader_schema="string",
-        input_msg=b'Hello! \xf0\x9f\x98\x80',
+        input_msg=b"Hello! \xf0\x9f\x98\x80",
         output_msg="Hello! 😀",
-    )
+    ),
 ]
 
-@pytest.mark.parametrize("case", type_promotion_testcases, ids=[tc.label for tc in type_promotion_testcases])
+
+@pytest.mark.parametrize(
+    "case", type_promotion_testcases, ids=[tc.label for tc in type_promotion_testcases]
+)
 def test_resolving_reader_type_promotion(case):
     case.assert_reader()
+
 
 enum_testcases = [
     testcase(
         label="unchanged",
-        writer_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
-        reader_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
+        writer_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
+        reader_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
         input_msg="red",
         output_msg="red",
     ),
     testcase(
         label="reordered",
-        writer_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
-        reader_schema={"type": "enum", "name": "color", "symbols": ["yellow", "red", "blue"]},
+        writer_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
+        reader_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["yellow", "red", "blue"],
+        },
         input_msg="red",
         output_msg="red",
     ),
     testcase(
         label="removed",
-        writer_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
+        writer_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
         reader_schema={"type": "enum", "name": "color", "symbols": ["red", "blue"]},
         input_msg="red",
         output_msg="red",
     ),
     testcase(
         label="added",
-        writer_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
-        reader_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow", "green"]},
+        writer_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
+        reader_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow", "green"],
+        },
         input_msg="red",
         output_msg="red",
     ),
     failcase(
         label="removed encoded value",
-        writer_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
+        writer_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
         reader_schema={"type": "enum", "name": "color", "symbols": ["blue", "yellow"]},
         input_msg="red",
         error_matcher="KeyError",
     ),
     testcase(
         label="removed encoded value uses default",
-        writer_schema={"type": "enum", "name": "color", "symbols": ["red", "blue", "yellow"]},
-        reader_schema={"type": "enum", "name": "color", "symbols": ["blue", "yellow"], "default": "blue"},
+        writer_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["red", "blue", "yellow"],
+        },
+        reader_schema={
+            "type": "enum",
+            "name": "color",
+            "symbols": ["blue", "yellow"],
+            "default": "blue",
+        },
         input_msg="red",
         output_msg="blue",
-    )
+    ),
 ]
 
-@pytest.mark.parametrize("case", enum_testcases, ids=[tc.label for tc in enum_testcases])
+
+@pytest.mark.parametrize(
+    "case", enum_testcases, ids=[tc.label for tc in enum_testcases]
+)
 def test_resolving_reader_enums(case):
     case.assert_reader()
+
 
 union_testcases = [
     testcase(
@@ -180,13 +240,17 @@ union_testcases = [
         writer_schema=["null", "int"],
         reader_schema="int",
         input_msg=None,
-        error_matcher="data written with type null is incompatible"
-    )
+        error_matcher="data written with type null is incompatible",
+    ),
 ]
 
-@pytest.mark.parametrize("case", union_testcases, ids=[tc.label for tc in union_testcases])
+
+@pytest.mark.parametrize(
+    "case", union_testcases, ids=[tc.label for tc in union_testcases]
+)
 def test_resolving_reader_unions(case):
     case.assert_reader()
+
 
 record_testcases = [
     testcase(
@@ -206,7 +270,8 @@ record_testcases = [
             "fields": [
                 {"type": "int", "name": "int_field"},
                 {"type": "float", "name": "float_field"},
-                {"type": "string", "name": "string_field"},                               ]
+                {"type": "string", "name": "string_field"},
+            ],
         },
         input_msg={"int_field": 1, "float_field": 0.5, "string_field": "hello"},
         output_msg={"int_field": 1, "float_field": 0.5, "string_field": "hello"},
@@ -227,8 +292,9 @@ record_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "float", "name": "float_field"},
-                {"type": "string", "name": "string_field"},                                    {"type": "int", "name": "int_field"},
-           ]
+                {"type": "string", "name": "string_field"},
+                {"type": "int", "name": "int_field"},
+            ],
         },
         input_msg={"int_field": 1, "float_field": 0.5, "string_field": "hello"},
         output_msg={"int_field": 1, "float_field": 0.5, "string_field": "hello"},
@@ -245,7 +311,7 @@ record_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "int_field"},
-            ]
+            ],
         },
         input_msg={},
         error_matcher="missing field",
@@ -269,7 +335,7 @@ record_testcases = [
                 {"type": "bytes", "name": "bytes_field", "default": "\u00ff"},
                 {"type": "string", "name": "string_field", "default": "abc"},
                 {"type": "null", "name": "null_field", "default": None},
-            ]
+            ],
         },
         input_msg={},
         output_msg={
@@ -285,7 +351,10 @@ record_testcases = [
     ),
 ]
 
-@pytest.mark.parametrize("case", record_testcases, ids=[tc.label for tc in record_testcases])
+
+@pytest.mark.parametrize(
+    "case", record_testcases, ids=[tc.label for tc in record_testcases]
+)
 def test_resolving_reader_records(case):
     case.assert_reader()
 
@@ -300,7 +369,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": "int", "name": "int_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -322,7 +391,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": "null", "name": "null_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -344,7 +413,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": "bytes", "name": "bytes_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -354,7 +423,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "end"},
             ],
         },
-        input_msg={"start": 1, "bytes_field": b'123', "end": 3},
+        input_msg={"start": 1, "bytes_field": b"123", "end": 3},
         output_msg={"start": 1, "end": 3},
     ),
     testcase(
@@ -366,7 +435,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": "float", "name": "float_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -388,7 +457,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": {"type": "string"}, "name": "string_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -410,7 +479,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": ["float", "boolean", "int"], "name": "union_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -432,7 +501,7 @@ record_skip_testcases = [
                 {"type": "int", "name": "start"},
                 {"type": ["float", "null"], "name": "union_field"},
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -452,13 +521,16 @@ record_skip_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "start"},
-                {"type": {
-                    "type": "record",
-                    "name": "SubRecord",
-                    "fields": [{"type": "string", "name": "subfield"}],
-                }, "name": "record_field"},
+                {
+                    "type": {
+                        "type": "record",
+                        "name": "SubRecord",
+                        "fields": [{"type": "string", "name": "subfield"}],
+                    },
+                    "name": "record_field",
+                },
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -478,13 +550,16 @@ record_skip_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "start"},
-                {"type": {
-                    "type": "record",
-                    "name": "SubRecord",
-                    "fields": [{"type": "string", "name": "subfield"}],
-                }, "name": "record_field"},
+                {
+                    "type": {
+                        "type": "record",
+                        "name": "SubRecord",
+                        "fields": [{"type": "string", "name": "subfield"}],
+                    },
+                    "name": "record_field",
+                },
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -504,12 +579,15 @@ record_skip_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "start"},
-                {"type": {
-                    "type": "array",
-                    "items": "int",
-                }, "name": "array_field"},
+                {
+                    "type": {
+                        "type": "array",
+                        "items": "int",
+                    },
+                    "name": "array_field",
+                },
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -529,12 +607,15 @@ record_skip_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "start"},
-                {"type": {
-                    "type": "map",
-                    "values": "int",
-                }, "name": "map_field"},
+                {
+                    "type": {
+                        "type": "map",
+                        "values": "int",
+                    },
+                    "name": "map_field",
+                },
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -554,13 +635,16 @@ record_skip_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "start"},
-                {"type": {
-                    "type": "enum",
-                    "symbols": ["RED", "YELLOW", "BLUE"],
-                    "name": "Color",
-                }, "name": "enum_field"},
+                {
+                    "type": {
+                        "type": "enum",
+                        "symbols": ["RED", "YELLOW", "BLUE"],
+                        "name": "Color",
+                    },
+                    "name": "enum_field",
+                },
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -580,13 +664,16 @@ record_skip_testcases = [
             "name": "Record",
             "fields": [
                 {"type": "int", "name": "start"},
-                {"type": {
-                    "type": "fixed",
-                    "size": 8,
-                    "name": "eightbytes",
-                }, "name": "fixed_field"},
+                {
+                    "type": {
+                        "type": "fixed",
+                        "size": 8,
+                        "name": "eightbytes",
+                    },
+                    "name": "fixed_field",
+                },
                 {"type": "int", "name": "end"},
-            ]
+            ],
         },
         reader_schema={
             "type": "record",
@@ -596,14 +683,18 @@ record_skip_testcases = [
                 {"type": "int", "name": "end"},
             ],
         },
-        input_msg={"start": 1, "fixed_field": b'12345678', "end": 3},
+        input_msg={"start": 1, "fixed_field": b"12345678", "end": 3},
         output_msg={"start": 1, "end": 3},
-    )
+    ),
 ]
 
-@pytest.mark.parametrize("case", record_skip_testcases, ids=[tc.label for tc in record_skip_testcases])
+
+@pytest.mark.parametrize(
+    "case", record_skip_testcases, ids=[tc.label for tc in record_skip_testcases]
+)
 def test_resolving_reader_record_skipping(case):
     case.assert_reader()
+
 
 array_testcases = [
     testcase(
@@ -629,7 +720,7 @@ array_testcases = [
                 "fields": [
                     {"name": "s", "type": "string"},
                     {"name": "i", "type": "int"},
-                ]
+                ],
             },
         },
         reader_schema={
@@ -639,7 +730,7 @@ array_testcases = [
                 "name": "Item",
                 "fields": [
                     {"name": "s", "type": "string"},
-                ]
+                ],
             },
         },
         input_msg=[{"s": "a", "i": 1}, {"s": "b", "i": 2}],
@@ -647,9 +738,13 @@ array_testcases = [
     ),
 ]
 
-@pytest.mark.parametrize("case", array_testcases, ids=[tc.label for tc in array_testcases])
+
+@pytest.mark.parametrize(
+    "case", array_testcases, ids=[tc.label for tc in array_testcases]
+)
 def test_resolving_reader_arrays(case):
     case.assert_reader()
+
 
 map_testcases = [
     testcase(
@@ -675,7 +770,7 @@ map_testcases = [
                 "fields": [
                     {"name": "s", "type": "string"},
                     {"name": "i", "type": "int"},
-                ]
+                ],
             },
         },
         reader_schema={
@@ -685,14 +780,14 @@ map_testcases = [
                 "name": "Item",
                 "fields": [
                     {"name": "s", "type": "string"},
-                ]
+                ],
             },
         },
-        input_msg={"k1": {"s": "a", "i": 1},
-                   "k2": {"s": "b", "i": 2}},
+        input_msg={"k1": {"s": "a", "i": 1}, "k2": {"s": "b", "i": 2}},
         output_msg={"k1": {"s": "a"}, "k2": {"s": "b"}},
     ),
 ]
+
 
 @pytest.mark.parametrize("case", map_testcases, ids=[tc.label for tc in map_testcases])
 def test_resolving_reader_maps(case):
@@ -704,19 +799,22 @@ fixed_testcases = [
         label="fixed",
         writer_schema={"name": "F", "type": "fixed", "size": 8},
         reader_schema={"name": "F", "type": "fixed", "size": 8, "extraInfo": True},
-        input_msg=b'12345678',
-        output_msg=b'12345678',
+        input_msg=b"12345678",
+        output_msg=b"12345678",
     ),
     failcase(
         label="changed size",
         writer_schema={"name": "F", "type": "fixed", "size": 8},
         reader_schema={"name": "F", "type": "fixed", "size": 10},
-        input_msg=b'12345678',
-        error_matcher="schemas do not match"
+        input_msg=b"12345678",
+        error_matcher="schemas do not match",
     ),
 ]
 
-@pytest.mark.parametrize("case", fixed_testcases, ids=[tc.label for tc in fixed_testcases])
+
+@pytest.mark.parametrize(
+    "case", fixed_testcases, ids=[tc.label for tc in fixed_testcases]
+)
 def test_resolving_reader_fixeds(case):
     case.assert_reader()
 
@@ -757,7 +855,7 @@ logical_testcases = [
         input_msg=1,
         output_msg=datetime.datetime(
             1970, 1, 1, 0, 0, 0, 1000, tzinfo=datetime.timezone.utc
-        )
+        ),
     ),
     testcase(
         label="int to timestamp-micros",
@@ -766,10 +864,14 @@ logical_testcases = [
         input_msg=1,
         output_msg=datetime.datetime(
             1970, 1, 1, 0, 0, 0, 1, tzinfo=datetime.timezone.utc
-        )
+        ),
     ),
 ]
-@pytest.mark.parametrize("case", logical_testcases, ids=[tc.label for tc in logical_testcases])
+
+
+@pytest.mark.parametrize(
+    "case", logical_testcases, ids=[tc.label for tc in logical_testcases]
+)
 def test_resolving_reader_logicals(case):
     case.assert_reader()
 
@@ -780,24 +882,27 @@ incompatible_testcases = [
         writer_schema={"type": "array", "items": "int"},
         reader_schema={"type": "map", "items": "int"},
         input_msg=[1, 2, 3],
-        error_matcher="schemas do not match"
+        error_matcher="schemas do not match",
     ),
     failcase(
         label="not promotable",
         writer_schema="int",
         reader_schema="string",
         input_msg=1,
-        error_matcher="schemas do not match"
+        error_matcher="schemas do not match",
     ),
     failcase(
         label="union not resolvable",
         writer_schema=["int", "long"],
         reader_schema="string",
         input_msg=1,
-        error_matcher="none of the options for the writer union can be resolved"
-    )
+        error_matcher="none of the options for the writer union can be resolved",
+    ),
 ]
 
-@pytest.mark.parametrize("case", incompatible_testcases, ids=[tc.label for tc in incompatible_testcases])
+
+@pytest.mark.parametrize(
+    "case", incompatible_testcases, ids=[tc.label for tc in incompatible_testcases]
+)
 def test_resolving_reader_schema_incompatibilities(case):
     case.assert_reader()

@@ -1,5 +1,6 @@
 import json
 
+
 class SchemaResolutionError(ValueError):
     def __init__(self, writer, reader, *args, **kwargs):
         self.writer_schema = writer

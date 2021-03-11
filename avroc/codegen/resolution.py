@@ -53,7 +53,9 @@ from ast import (
 class ResolvedReaderCompiler(ReaderCompiler):
     def __init__(self, writer_schema: SchemaType, reader_schema: SchemaType):
         if not schemas_match(writer_schema, reader_schema):
-            raise SchemaResolutionError(writer_schema, reader_schema, "schemas do not match")
+            raise SchemaResolutionError(
+                writer_schema, reader_schema, "schemas do not match"
+            )
         self.reader_schema = reader_schema
         self.writer_schema = writer_schema
         super(ResolvedReaderCompiler, self).__init__(writer_schema)
@@ -80,7 +82,11 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 level=0,
             )
         )
-        body.append(self.generate_decoder_func(self.writer_schema, self.reader_schema, self.entrypoint_name))
+        body.append(
+            self.generate_decoder_func(
+                self.writer_schema, self.reader_schema, self.entrypoint_name
+            )
+        )
 
         # # Identify recursively-defined schemas. For each one, create a named
         # # decoder function.
@@ -99,7 +105,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         module = fix_missing_locations(module)
         return module
 
-    def generate_decoder_func(self, writer_schema: SchemaType, reader_schema: SchemaType, name: str) -> FunctionDef:
+    def generate_decoder_func(
+        self, writer_schema: SchemaType, reader_schema: SchemaType, name: str
+    ) -> FunctionDef:
         """
         Returns an AST describing a function which can decode an Avro message from a
         IO[bytes] source. The data is decoded from the writer's schema and into
@@ -119,11 +127,15 @@ class ResolvedReaderCompiler(ReaderCompiler):
             decorator_list=[],
         )
 
-        func.body.extend(self._gen_resolved_decode(writer_schema, reader_schema, result_var))
+        func.body.extend(
+            self._gen_resolved_decode(writer_schema, reader_schema, result_var)
+        )
         func.body.append(Return(value=Name(id=result_var.id, ctx=Load())))
         return func
 
-    def _gen_resolved_decode(self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_resolved_decode(
+        self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST
+    ) -> List[stmt]:
         """
         It is an error if the two schemas do not match.
 
@@ -209,13 +221,19 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         # Both are primitive types:
         if writer_type in PRIMITIVES and reader_type in PRIMITIVES:
-            return self._gen_type_promoting_primitive_decode(writer_type, reader_type, dest)
+            return self._gen_type_promoting_primitive_decode(
+                writer_type, reader_type, dest
+            )
 
         # Named type references:
         if isinstance(writer_schema, str) and writer_type not in PRIMITIVES:
-            raise NotImplementedError(f"named type references are not implemented, so can't handle writer schema '{writer_schema}'")
+            raise NotImplementedError(
+                f"named type references are not implemented, so can't handle writer schema '{writer_schema}'"
+            )
         if isinstance(reader_schema, str) and reader_type not in PRIMITIVES:
-            raise NotImplementedError(f"named type references are not implemented, so can't handle reader schema '{reader_schema}'")
+            raise NotImplementedError(
+                f"named type references are not implemented, so can't handle reader schema '{reader_schema}'"
+            )
 
         if writer_type == "union" and reader_type == "union":
             assert isinstance(writer_schema, list)
@@ -231,22 +249,35 @@ class ResolvedReaderCompiler(ReaderCompiler):
         # At this point, we're sure the schemas are dictionaries.
         assert isinstance(writer_schema, dict) and isinstance(reader_schema, dict)
         if writer_type == "enum" and reader_type == "enum":
-            return self._gen_enum_decode(writer_schema["symbols"], reader_schema["symbols"], reader_schema.get("default"), dest)
+            return self._gen_enum_decode(
+                writer_schema["symbols"],
+                reader_schema["symbols"],
+                reader_schema.get("default"),
+                dest,
+            )
         if writer_type == "record" and reader_type == "record":
             return self._gen_record_decode(writer_schema, reader_schema, dest)
 
         if writer_type == "array" and reader_type == "array":
-            return self._gen_array_decode(writer_schema["items"], reader_schema["items"], dest)
+            return self._gen_array_decode(
+                writer_schema["items"], reader_schema["items"], dest
+            )
 
         if writer_type == "map" and reader_type == "map":
-            return self._gen_map_decode(writer_schema["values"], reader_schema["values"], dest)
+            return self._gen_map_decode(
+                writer_schema["values"], reader_schema["values"], dest
+            )
 
         if writer_type == "fixed" and reader_type == "fixed":
             return self._gen_fixed_decode(reader_schema["size"], dest)
 
-        raise SchemaResolutionError(writer_schema, reader_schema, "reader and writer schemas are incompatible")
+        raise SchemaResolutionError(
+            writer_schema, reader_schema, "reader and writer schemas are incompatible"
+        )
 
-    def _gen_type_promoting_primitive_decode(self, writer_schema: str, reader_schema: str, dest: AST) -> List[stmt]:
+    def _gen_type_promoting_primitive_decode(
+        self, writer_schema: str, reader_schema: str, dest: AST
+    ) -> List[stmt]:
         """
         Generate a series of statements that will read a value according to the
         writer's schema, and then promote it into the reader's schema type.
@@ -302,7 +333,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 keywords=[],
             )
         else:
-            raise SchemaResolutionError(writer_schema, reader_schema, "primitive types are incompatible")
+            raise SchemaResolutionError(
+                writer_schema, reader_schema, "primitive types are incompatible"
+            )
         assignment = Assign(
             targets=[dest],
             value=type_cast,
@@ -310,7 +343,13 @@ class ResolvedReaderCompiler(ReaderCompiler):
         statements.append(assignment)
         return statements
 
-    def _gen_enum_decode(self, writer_symbols: List[str], reader_symbols: List[str], reader_default: Optional[str], dest: AST) -> List[stmt]:
+    def _gen_enum_decode(
+        self,
+        writer_symbols: List[str],
+        reader_symbols: List[str],
+        reader_default: Optional[str],
+        dest: AST,
+    ) -> List[stmt]:
         """
         if the writer's symbol is not present in the reader's enum and the reader
         has a default value, then that value is used, otherwise an error is
@@ -354,7 +393,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         return [Assign(targets=[dest], value=dict_lookup)]
 
-    def _gen_read_from_union(self, writer_schema: List[SchemaType], reader_schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_read_from_union(
+        self, writer_schema: List[SchemaType], reader_schema: SchemaType, dest: AST
+    ) -> List[stmt]:
         """
         Read data when the writer specified a union, but the reader did not.
 
@@ -411,11 +452,15 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         if not any_legal:
             raise SchemaResolutionError(
-                writer_schema, reader_schema,
-                "none of the options for the writer union can be resolved to reader's schema")
+                writer_schema,
+                reader_schema,
+                "none of the options for the writer union can be resolved to reader's schema",
+            )
         return statements
 
-    def _gen_record_decode(self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_record_decode(
+        self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST
+    ) -> List[stmt]:
 
         reader_fields_by_name = {f["name"]: f for f in reader_schema["fields"]}
         writer_fields_by_name = {f["name"]: f for f in writer_schema["fields"]}
@@ -427,21 +472,26 @@ class ResolvedReaderCompiler(ReaderCompiler):
             if field["name"] not in writer_fields_by_name:
                 if "default" in field:
                     record_value.keys.append(Constant(value=field["name"]))
-                    record_value.values.append(literal_from_default(field["default"], field["type"]))
+                    record_value.values.append(
+                        literal_from_default(field["default"], field["type"])
+                    )
                 else:
                     raise SchemaResolutionError(
                         writer_schema,
                         reader_schema,
-                        f"missing field {field['name']} from writer schema and no default is set")
+                        f"missing field {field['name']} from writer schema and no default is set",
+                    )
 
         # We've constructed the AST node representing a dictionary literal. Now,
         # assign it to a variable.
         record_value_name = self.new_variable(reader_schema["name"])
         statements: List[stmt] = []
-        statements.append(Assign(
-            targets=[Name(id=record_value_name, ctx=Store())],
-            value=record_value,
-        ))
+        statements.append(
+            Assign(
+                targets=[Name(id=record_value_name, ctx=Store())],
+                value=record_value,
+            )
+        )
 
         # Fill in the fields based on the writer's order.
         for writer_field in writer_schema["fields"]:
@@ -454,19 +504,24 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     slice=Index(value=Constant(value=reader_field["name"])),
                     ctx=Store(),
                 )
-                statements.extend(self._gen_resolved_decode(writer_field, reader_field, field_dest))
+                statements.extend(
+                    self._gen_resolved_decode(writer_field, reader_field, field_dest)
+                )
             else:
                 statements.extend(self._gen_skip(writer_field["type"]))
 
         # Assign the created object to the target dest
         statements.append(
-            Assign(targets=[dest],
-                   value=Name(id=record_value_name, ctx=Load()),
+            Assign(
+                targets=[dest],
+                value=Name(id=record_value_name, ctx=Load()),
             ),
         )
         return statements
 
-    def _gen_array_decode(self, writer_item_schema: SchemaType, reader_item_schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_array_decode(
+        self, writer_item_schema: SchemaType, reader_item_schema: SchemaType, dest: AST
+    ) -> List[stmt]:
         """
         Generate statements to decode an array of data, applying the schema
         resolution argument to the array item schemas.
@@ -497,7 +552,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         # ... read a value...
         value_varname = self.new_variable("array_val")
         value_dest = Name(id=value_varname, ctx=Store())
-        read_statements = self._gen_resolved_decode(writer_item_schema, reader_item_schema, value_dest)
+        read_statements = self._gen_resolved_decode(
+            writer_item_schema, reader_item_schema, value_dest
+        )
         for_each_message.extend(read_statements)
 
         # ... and append it to the list.
@@ -526,7 +583,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         statements.append(assign_result)
         return statements
 
-    def _gen_map_decode(self, writer_values: SchemaType, reader_values: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_map_decode(
+        self, writer_values: SchemaType, reader_values: SchemaType, dest: AST
+    ) -> List[stmt]:
         """
         Generate statements to decode a map of data, applying the schema resolution
         argument to the map value schemas.
@@ -563,7 +622,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
             slice=Index(Name(id=key_varname, ctx=Load())),
             ctx=Store(),
         )
-        for_each_message.extend(self._gen_resolved_decode(writer_values, reader_values, value_dest))
+        for_each_message.extend(
+            self._gen_resolved_decode(writer_values, reader_values, value_dest)
+        )
 
         statements.extend(self._gen_block_decode(for_each_message))
 
@@ -576,7 +637,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         )
         return statements
 
-    def _gen_logical_decode(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_logical_decode(
+        self, writer: SchemaType, reader: SchemaType, dest: AST
+    ) -> List[stmt]:
         writer_type = schema_type(writer)
         reader_type = schema_type(reader)
         if writer_type == reader_type:
@@ -606,10 +669,13 @@ class ResolvedReaderCompiler(ReaderCompiler):
             call = func_call("timestamp_micros_from_int", [call_decoder("int")])
             return [Assign(targets=[dest], value=call)]
 
-        raise SchemaResolutionError(writer, reader, "unable to promote for logical type conversion")
+        raise SchemaResolutionError(
+            writer, reader, "unable to promote for logical type conversion"
+        )
 
-
-    def _gen_logical_uuid_decode(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_logical_uuid_decode(
+        self, writer: SchemaType, reader: SchemaType, dest: AST
+    ) -> List[stmt]:
         # Decode a string (or promote from bytes).
         writer_type = schema_type(writer)
         if writer_type == "string":
@@ -621,34 +687,45 @@ class ResolvedReaderCompiler(ReaderCompiler):
             call = func_call("uuid_from_bytes", [call_decoder("bytes")])
             return [Assign(targets=[dest], value=call)]
         else:
-            raise SchemaResolutionError(writer, reader, "cannot read uuid from writer type")
+            raise SchemaResolutionError(
+                writer, reader, "cannot read uuid from writer type"
+            )
         return statements
 
-    def _gen_logical_decimal_bytes_decode(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_logical_decimal_bytes_decode(
+        self, writer: SchemaType, reader: SchemaType, dest: AST
+    ) -> List[stmt]:
         # Decode bytes (or promote from string).
         writer_type = schema_type(writer)
         if writer_type == "bytes":
             # Writer used bytes, so we can decode it directly. Note that reader
             # and writer must have the same scale and precision; this was
             # checked when we checke dthat the schemas match.
-            call = func_call("decode_decimal_bytes", [
-                Name(id="src", ctx=Load()),
-                Constant(value=reader["precision"]),
-                Constant(value=reader.get("scale", 0)),
-            ])
+            call = func_call(
+                "decode_decimal_bytes",
+                [
+                    Name(id="src", ctx=Load()),
+                    Constant(value=reader["precision"]),
+                    Constant(value=reader.get("scale", 0)),
+                ],
+            )
             return [Assign(targets=[dest], value=call)]
         elif writer_type == "string":
             # Promote string into bytes.
-            call = func_call("decimal_from_string", [
-                call_decoder("string"),
-                Constant(value=reader["precision"]),
-                Constant(value=reader.get("scale", 0)),
-            ])
+            call = func_call(
+                "decimal_from_string",
+                [
+                    call_decoder("string"),
+                    Constant(value=reader["precision"]),
+                    Constant(value=reader.get("scale", 0)),
+                ],
+            )
             return [Assign(targets=[dest], value=call)]
         else:
-            raise SchemaResolutionError(writer, reader, "cannot read uuid from writer type")
+            raise SchemaResolutionError(
+                writer, reader, "cannot read uuid from writer type"
+            )
         return statements
-
 
     ### Skip Methods ###
     def _gen_skip(self, schema: SchemaType) -> List[stmt]:
@@ -659,7 +736,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
             if schema in PRIMITIVES:
                 return self._gen_skip_primitive(schema)
             else:
-                raise NotImplementedError(f"skip not implemented for named types, have {schema}")
+                raise NotImplementedError(
+                    f"skip not implemented for named types, have {schema}"
+                )
 
         if isinstance(schema, list):
             return self._gen_skip_union(schema)
@@ -692,13 +771,15 @@ class ResolvedReaderCompiler(ReaderCompiler):
         """
         if schema == "null":
             return []
-        return [Expr(
-            value=Call(
-                func=Name(id="skip_" + schema, ctx=Load()),
-                args=[Name(id="src", ctx=Load())],
-                keywords=[],
+        return [
+            Expr(
+                value=Call(
+                    func=Name(id="skip_" + schema, ctx=Load()),
+                    args=[Name(id="src", ctx=Load())],
+                    keywords=[],
                 ),
-            )]
+            )
+        ]
 
     def _gen_skip_union(self, options: List[SchemaType]) -> List[stmt]:
         """
@@ -721,7 +802,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             if_idx_matches = Compare(
                 left=Name(id=idx_var_name, ctx=Load()),
                 ops=[Eq()],
-                comparators=[Constant(idx)]
+                comparators=[Constant(idx)],
             )
             if_stmt = If(
                 test=if_idx_matches,
@@ -769,16 +850,19 @@ class ResolvedReaderCompiler(ReaderCompiler):
         Generate statements to skip a fixed message.
         """
         # Just src.read(size).
-        return [Expr(
-            value=Call(
-                func=Attribute(
-                    value=Name(id="src", ctx=Load()),
-                    attr="read",
-                    ctx=Load(),
-                ),
-                args=[Constant(value=size)],
-                keywords=[],
-        ))]
+        return [
+            Expr(
+                value=Call(
+                    func=Attribute(
+                        value=Name(id="src", ctx=Load()),
+                        attr="read",
+                        ctx=Load(),
+                    ),
+                    args=[Constant(value=size)],
+                    keywords=[],
+                )
+            )
+        ]
 
     def _gen_skip_enum(self) -> List[stmt]:
         """
@@ -798,6 +882,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             ),
             cause=None,
         )
+
 
 def schemas_match(writer: SchemaType, reader: SchemaType) -> bool:
     """
@@ -824,7 +909,10 @@ def schemas_match(writer: SchemaType, reader: SchemaType) -> bool:
     #   For the purposes of schema resolution, two schemas that are decimal
     #   logical types match if their scales and precisions match.
     if isinstance(writer, dict) and isinstance(reader, dict):
-        if writer.get("logicalType", "") == "decimal" and reader.get("logicalType", "") == "decimal":
+        if (
+            writer.get("logicalType", "") == "decimal"
+            and reader.get("logicalType", "") == "decimal"
+        ):
             if writer.get("scale", 0) != reader.get("scale", 0):
                 return False
             if writer["precision"] != reader["precision"]:

@@ -142,7 +142,9 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
             for field in schema["fields"]:
                 default_field_value = v[field["name"]]
                 record_literal.keys.append(Constant(value=field["name"]))
-                record_literal.values.append(literal_from_default(default_field_value, field["type"]))
+                record_literal.values.append(
+                    literal_from_default(default_field_value, field["type"])
+                )
             return record_literal
         if schema["type"] == "array":
             # Default for an array is a list; values are according to the items
@@ -150,7 +152,9 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
             assert isinstance(v, list)
             array_literal = ListLiteral(elts=[], ctx=Load())
             for array_item in v:
-                array_literal.elts.append(literal_from_default(array_item, schema["items"]))
+                array_literal.elts.append(
+                    literal_from_default(array_item, schema["items"])
+                )
             return array_literal
         if schema["type"] == "map":
             # Default for a map is a dictionary; values are according to the values
