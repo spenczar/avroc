@@ -3,6 +3,10 @@ import io
 import avroc.codegen.resolution
 import fastavro.read
 
+import uuid
+import decimal
+import datetime
+
 class testcase:
     def __init__(self, label, writer_schema, reader_schema, input_msg, output_msg):
         self.label = label
@@ -714,6 +718,59 @@ fixed_testcases = [
 
 @pytest.mark.parametrize("case", fixed_testcases, ids=[tc.label for tc in fixed_testcases])
 def test_resolving_reader_fixeds(case):
+    case.assert_reader()
+
+
+logical_testcases = [
+    testcase(
+        label="string to uuid",
+        writer_schema="string",
+        reader_schema={"type": "string", "logicalType": "uuid"},
+        input_msg="f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+        output_msg=uuid.UUID("f81d4fae-7dec-11d0-a765-00a0c91e6bf6"),
+    ),
+    testcase(
+        label="uuid to string",
+        writer_schema={"type": "string", "logicalType": "uuid"},
+        reader_schema="string",
+        input_msg=uuid.UUID("f81d4fae-7dec-11d0-a765-00a0c91e6bf6"),
+        output_msg="f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    ),
+    testcase(
+        label="bytes to uuid",
+        writer_schema="bytes",
+        reader_schema={"type": "string", "logicalType": "uuid"},
+        input_msg=b"f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+        output_msg=uuid.UUID("f81d4fae-7dec-11d0-a765-00a0c91e6bf6"),
+    ),
+    testcase(
+        label="int to time-micros",
+        writer_schema="int",
+        reader_schema={"type": "long", "logicalType": "time-micros"},
+        input_msg=1,
+        output_msg=datetime.time(0, 0, 0, 1),
+    ),
+    testcase(
+        label="int to timestamp-millis",
+        writer_schema="int",
+        reader_schema={"type": "long", "logicalType": "timestamp-millis"},
+        input_msg=1,
+        output_msg=datetime.datetime(
+            1970, 1, 1, 0, 0, 0, 1000, tzinfo=datetime.timezone.utc
+        )
+    ),
+    testcase(
+        label="int to timestamp-micros",
+        writer_schema="int",
+        reader_schema={"type": "long", "logicalType": "timestamp-micros"},
+        input_msg=1,
+        output_msg=datetime.datetime(
+            1970, 1, 1, 0, 0, 0, 1, tzinfo=datetime.timezone.utc
+        )
+    ),
+]
+@pytest.mark.parametrize("case", logical_testcases, ids=[tc.label for tc in logical_testcases])
+def test_resolving_reader_logicals(case):
     case.assert_reader()
 
 

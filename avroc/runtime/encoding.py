@@ -169,6 +169,10 @@ def encode_decimal_bytes(msg: decimal.Decimal, precision: int, scale: int = 0) -
     return encode_bytes(as_bytes)
 
 
+def decimal_from_string(raw: str, precision: int, scale: int=0) -> decimal.Decimal:
+    return _deserialize_decimal(raw.encode(), precision, scale)
+
+
 def decode_decimal_fixed(
     src: IO[bytes], size: int, precision: int, scale: int = 0
 ) -> decimal.Decimal:
@@ -238,6 +242,10 @@ def encode_uuid(msg: uuid.UUID) -> bytes:
     return encode_string(str(msg))
 
 
+def uuid_from_bytes(raw: bytes) -> uuid.UUID:
+    return uuid.UUID(raw.decode())
+
+
 # Date
 __unix_epoch_day_zero = datetime.date(1970, 1, 1).toordinal()
 
@@ -274,13 +282,7 @@ def encode_time_millis(msg: datetime.time) -> bytes:
 
 def decode_time_micros(src: IO[bytes]) -> datetime.time:
     total_micros = decode_long(src)
-    hours, remainder = divmod(total_micros, 60 * 60 * 1000000)
-    minutes, remainder = divmod(remainder, 60 * 1000000)
-    seconds, remainder = divmod(remainder, 1000000)
-    microseconds = remainder % 1000000
-    return datetime.time(
-        hour=hours, minute=minutes, second=seconds, microsecond=microseconds
-    )
+    return time_micros_from_int(total_micros)
 
 
 def encode_time_micros(msg: datetime.time) -> bytes:
@@ -293,15 +295,23 @@ def encode_time_micros(msg: datetime.time) -> bytes:
     return encode_int(val)
 
 
+def time_micros_from_int(total_micros: int) -> datetime.time:
+    hours, remainder = divmod(total_micros, 60 * 60 * 1000000)
+    minutes, remainder = divmod(remainder, 60 * 1000000)
+    seconds, remainder = divmod(remainder, 1000000)
+    microseconds = remainder % 1000000
+    return datetime.time(
+        hour=hours, minute=minutes, second=seconds, microsecond=microseconds
+    )
+
+
 __unix_epoch_start_with_tz = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 __unix_epoch_start_without_tz = datetime.datetime(1970, 1, 1)
 
 
 def decode_timestamp_millis(src: IO[bytes]) -> datetime.datetime:
     total_millis = decode_long(src)
-    return __unix_epoch_start_with_tz + datetime.timedelta(
-        microseconds=total_millis * 1000
-    )
+    return timestamp_millis_from_int(total_millis)
 
 
 def encode_timestamp_millis(msg: datetime.datetime) -> bytes:
@@ -317,9 +327,15 @@ def encode_timestamp_millis(msg: datetime.datetime) -> bytes:
     return encode_long(val)
 
 
+def timestamp_millis_from_int(total_millis: int) -> datetime.datetime:
+    return __unix_epoch_start_with_tz + datetime.timedelta(
+        microseconds=total_millis * 1000
+    )
+
+
 def decode_timestamp_micros(src: IO[bytes]) -> datetime.datetime:
     total_micros = decode_long(src)
-    return __unix_epoch_start_with_tz + datetime.timedelta(microseconds=total_micros)
+    return timestamp_micros_from_int(total_micros)
 
 
 def encode_timestamp_micros(msg: datetime.datetime) -> bytes:
@@ -333,3 +349,7 @@ def encode_timestamp_micros(msg: datetime.datetime) -> bytes:
         + epoch_delta.microseconds
     )
     return encode_long(val)
+
+
+def timestamp_micros_from_int(total_micros: int) -> datetime.datetime:
+    return __unix_epoch_start_with_tz + datetime.timedelta(microseconds=total_micros)

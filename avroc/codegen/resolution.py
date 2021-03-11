@@ -3,8 +3,8 @@ from typing import List, Optional
 from avroc.avro_common import PRIMITIVES, is_primitive_schema, schema_type
 from avroc.codegen.read import ReaderCompiler
 from avroc.codegen.errors import SchemaResolutionError
-from avroc.codegen.astutil import call_decoder, literal_from_default
-from avroc.util import SchemaType, clean_name
+from avroc.codegen.astutil import call_decoder, literal_from_default, func_call
+from avroc.util import SchemaType, clean_name, LogicalTypeError
 
 from ast import (
     Add,
@@ -193,10 +193,16 @@ class ResolvedReaderCompiler(ReaderCompiler):
             recursively resolved against it. If they do not match, an error is
             signalled.
         """
-        if isinstance(writer_schema, dict) and "logicalType" in writer_schema:
-            raise NotImplementedError("logical types not implemented")
         if isinstance(reader_schema, dict) and "logicalType" in reader_schema:
-            raise NotImplementedError("logical types not implemented")
+            try:
+                return self._gen_logical_decode(writer_schema, reader_schema, dest)
+            except LogicalTypeError:
+                # An unknown logical type, or one which is invalid; skip this.
+                # We'll pretend its a non-logical type.
+                pass
+        # We don't actually need to check whether the writer used a logical
+        # type. If they did and the reader didn't, we should deserialize without
+        # doing any logical type conversions.
 
         writer_type = schema_type(writer_schema)
         reader_type = schema_type(reader_schema)
@@ -570,6 +576,80 @@ class ResolvedReaderCompiler(ReaderCompiler):
         )
         return statements
 
+    def _gen_logical_decode(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+        writer_type = schema_type(writer)
+        reader_type = schema_type(reader)
+        if writer_type == reader_type:
+            # No type promotions necessary. Use the standard reader behavior.
+            return super(ResolvedReaderCompiler, self)._gen_logical_decode(reader, dest)
+
+        lt = reader["logicalType"]
+        # Maybe we need to do a type promotion.
+        if lt == "uuid":
+            assert writer_type == "bytes"
+            call = func_call("uuid_from_bytes", [call_decoder("bytes")])
+            return [Assign(targets=[dest], value=call)]
+        if lt == "decimal":
+            assert writer_type == "string"
+            call = func_call("decimal_from_string", [call_decoder("string")])
+            return [Assign(targets=[dest], value=call)]
+        if lt == "time-micros":
+            assert writer_type == "int"
+            call = func_call("time_micros_from_int", [call_decoder("int")])
+            return [Assign(targets=[dest], value=call)]
+        if lt == "timestamp-millis":
+            assert writer_type == "int"
+            call = func_call("timestamp_millis_from_int", [call_decoder("int")])
+            return [Assign(targets=[dest], value=call)]
+        if lt == "timestamp-micros":
+            assert writer_type == "int"
+            call = func_call("timestamp_micros_from_int", [call_decoder("int")])
+            return [Assign(targets=[dest], value=call)]
+
+        raise SchemaResolutionError(writer, reader, "unable to promote for logical type conversion")
+
+
+    def _gen_logical_uuid_decode(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+        # Decode a string (or promote from bytes).
+        writer_type = schema_type(writer)
+        if writer_type == "string":
+            # Writer used a string, so we can decode it directly.
+            call = func_call("decode_uuid", [Name(id="src", ctx=Load())])
+            return [Assign(targets=[dest], value=call)]
+        elif writer_type == "bytes":
+            # Promote bytes into string.
+            call = func_call("uuid_from_bytes", [call_decoder("bytes")])
+            return [Assign(targets=[dest], value=call)]
+        else:
+            raise SchemaResolutionError(writer, reader, "cannot read uuid from writer type")
+        return statements
+
+    def _gen_logical_decimal_bytes_decode(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+        # Decode bytes (or promote from string).
+        writer_type = schema_type(writer)
+        if writer_type == "bytes":
+            # Writer used bytes, so we can decode it directly. Note that reader
+            # and writer must have the same scale and precision; this was
+            # checked when we checke dthat the schemas match.
+            call = func_call("decode_decimal_bytes", [
+                Name(id="src", ctx=Load()),
+                Constant(value=reader["precision"]),
+                Constant(value=reader.get("scale", 0)),
+            ])
+            return [Assign(targets=[dest], value=call)]
+        elif writer_type == "string":
+            # Promote string into bytes.
+            call = func_call("decimal_from_string", [
+                call_decoder("string"),
+                Constant(value=reader["precision"]),
+                Constant(value=reader.get("scale", 0)),
+            ])
+            return [Assign(targets=[dest], value=call)]
+        else:
+            raise SchemaResolutionError(writer, reader, "cannot read uuid from writer type")
+        return statements
+
+
     ### Skip Methods ###
     def _gen_skip(self, schema: SchemaType) -> List[stmt]:
         """
@@ -738,6 +818,17 @@ def schemas_match(writer: SchemaType, reader: SchemaType) -> bool:
     """
     writer_type = schema_type(writer)
     reader_type = schema_type(reader)
+
+    # Special case for logical decimal types. From the spec:
+    #
+    #   For the purposes of schema resolution, two schemas that are decimal
+    #   logical types match if their scales and precisions match.
+    if isinstance(writer, dict) and isinstance(reader, dict):
+        if writer.get("logicalType", "") == "decimal" and reader.get("logicalType", "") == "decimal":
+            if writer.get("scale", 0) != reader.get("scale", 0):
+                return False
+            if writer["precision"] != reader["precision"]:
+                return False
 
     if writer_type == "array" and reader_type == "array":
         return schemas_match(writer["items"], reader["items"])
