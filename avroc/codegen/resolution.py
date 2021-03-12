@@ -1,10 +1,13 @@
 from typing import List, Optional
 
-from avroc.avro_common import PRIMITIVES, is_primitive_schema, schema_type
+from avroc.avro_common import PRIMITIVES, AVRO_TYPES, is_primitive_schema, schema_type
 from avroc.codegen.read import ReaderCompiler
 from avroc.codegen.errors import SchemaResolutionError
+from avroc.codegen.graph import find_recursive_types
 from avroc.codegen.astutil import call_decoder, literal_from_default, func_call
 from avroc.util import SchemaType, clean_name, LogicalTypeError
+from avroc.schema import expand_names, gather_named_types
+
 
 from ast import (
     Add,
@@ -52,12 +55,21 @@ from ast import (
 
 class ResolvedReaderCompiler(ReaderCompiler):
     def __init__(self, writer_schema: SchemaType, reader_schema: SchemaType):
-        if not schemas_match(writer_schema, reader_schema):
+        self.reader_schema = expand_names(reader_schema)
+        self.writer_schema = expand_names(writer_schema)
+
+        self.writer_names = gather_named_types(self.writer_schema)
+        self.reader_names = gather_named_types(self.reader_schema)
+
+        if not self.schemas_match(writer_schema, reader_schema):
             raise SchemaResolutionError(
                 writer_schema, reader_schema, "schemas do not match"
             )
-        self.reader_schema = reader_schema
-        self.writer_schema = writer_schema
+
+        self.writer_recursive_types = find_recursive_types(self.writer_schema)
+        self.writer_recursive_type_names = {x["name"] for x in self.writer_recursive_types}
+        self.reader_recursive_types = find_recursive_types(self.reader_schema)
+        self.reader_recursive_type_names = {x["name"] for x in self.writer_recursive_types}
         super(ResolvedReaderCompiler, self).__init__(writer_schema)
 
     def generate_module(self) -> Module:
@@ -88,15 +100,23 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
         )
 
-        # # Identify recursively-defined schemas. For each one, create a named
-        # # decoder function.
-        # for recursive_type in self.recursive_types:
-        #     body.append(
-        #         self.generate_decoder_func(
-        #             name=self._decoder_name(recursive_type["name"]),
-        #             schema=recursive_type,
-        #         )
-        #     )
+        # Identify recursively-defined schemas. For each one, create a named
+        # decoder function, as well as a skip function.
+        for recursive_type in self.writer_recursive_types:
+            reader_schema = self.reader_names[recursive_type["name"]]
+            body.append(
+                self.generate_decoder_func(
+                    writer_schema=recursive_type,
+                    reader_schema=reader_schema,
+                    name=self._decoder_name(recursive_type["name"]),
+                )
+            )
+            body.append(
+                self.generate_skip_func(
+                    name=self._skipper_name(recursive_type["name"]),
+                    schema=recursive_type,
+                )
+            )
 
         module = Module(
             body=body,
@@ -226,25 +246,37 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
 
         # Named type references:
-        if isinstance(writer_schema, str) and writer_type not in PRIMITIVES:
-            raise NotImplementedError(
-                f"named type references are not implemented, so can't handle writer schema '{writer_schema}'"
-            )
-        if isinstance(reader_schema, str) and reader_type not in PRIMITIVES:
-            raise NotImplementedError(
-                f"named type references are not implemented, so can't handle reader schema '{reader_schema}'"
-            )
+        if writer_type not in AVRO_TYPES:
+            # Could be recursion?
+            if writer_type in self.writer_recursive_type_names:
+                # Yep, recursion. Just generate a function call - we'll have a
+                # separate function to handle this type.
+                return self._gen_decode_recursive_write(writer_type, dest)
+            # No, not recursion. Continue with an inline read.
+            referenced_schema = self.writer_names[writer_type]
+            return self._gen_resolved_decode(referenced_schema, reader_schema, dest)
 
+        if reader_type not in AVRO_TYPES:
+            # Could be recursion?
+            if reader_type in self.reader_recursive_type_names:
+                # Yep, recursion. Just generate a function call - we'll have a
+                # separate function to handle this type.
+                return self._gen_decode_recursive_read(reader_type, dest)
+            # No, not recursion. Continue with an inline read.
+            referenced_schema = self.reader_names[reader_type]
+            return self._gen_resolved_decode(writer_schema, referenced_schema, dest)
+
+        # Unions
         if writer_type == "union" and reader_type == "union":
             assert isinstance(writer_schema, list)
             assert isinstance(reader_schema, list)
-            raise NotImplementedError("reading unions is not implemented")
+            return self._gen_union_decode(writer_schema, reader_schema, dest)
         if writer_type == "union":
             assert isinstance(writer_schema, list)
             return self._gen_read_from_union(writer_schema, reader_schema, dest)
         if reader_type == "union":
             assert isinstance(reader_schema, list)
-            raise NotImplementedError("reading into unions is not implemented")
+            return self._gen_read_into_union(writer_schema, reader_schema, dest)
 
         # At this point, we're sure the schemas are dictionaries.
         assert isinstance(writer_schema, dict) and isinstance(reader_schema, dict)
@@ -393,17 +425,14 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         return [Assign(targets=[dest], value=dict_lookup)]
 
-    def _gen_read_from_union(
-        self, writer_schema: List[SchemaType], reader_schema: SchemaType, dest: AST
-    ) -> List[stmt]:
+    def _gen_union_decode(self, writer_schema: List[SchemaType], reader_schema: List[SchemaType], dest: AST) -> List[stmt]:
         """
-        Read data when the writer specified a union, but the reader did not.
+        Read data when both the writer and reader specified a union.
 
         The spec says:
-            if writer's schema is a union, but reader's is not:
-                If the reader's schema matches the selected writer's schema, it is
-                recursively resolved against it. If they do not match, an error is
-                signalled.
+            The first schema in the reader's union that matches the selected
+            writer's union schema is recursively resolved against it. if none
+            match, an error is signalled.
 
         This decision can only be made at runtime. If there are any non-matching
         schemas in the writer's union, we generate a 'raise' statement for those
@@ -433,11 +462,14 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 test=if_idx_matches,
                 orelse=[],
             )
-            if schemas_match(option, reader_schema):
-                # For options which can be cast into the reader's schema, generate a
-                # normal 'decode' statement (and do any casting necessary).
-                if_stmt.body = self._gen_resolved_decode(option, reader_schema, dest)
-                any_legal = True
+            # Take the first matching reader schema and use it for decoding.
+            for r in reader_schema:
+                if self.schemas_match(option, r):
+                    # For options which can be cast into the reader's schema, generate a
+                    # normal 'decode' statement (and do any casting necessary).
+                    if_stmt.body = self._gen_resolved_decode(option, r, dest)
+                    any_legal = True
+                    break
             else:
                 # For options which can't be cast, raise an error.
                 msg = f"data written with type {schema_type(option)} is incompatible with reader schema"
@@ -458,6 +490,39 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
         return statements
 
+    def _gen_read_into_union(self, writer_schema: SchemaType, reader_schema: List[SchemaType], dest: AST) -> List[stmt]:
+        """
+        Read data when the reader specified a union but the writer did not.
+
+        The spec says:
+            if reader's is a union, but writer's is not
+
+                The first schema in the reader's union that matches the writer's
+                schema is recursively resolved against it. If none match, an
+                error is signalled.
+        """
+        for schema in reader_schema:
+            if self.schemas_match(writer_schema, schema):
+                return self._gen_resolved_decode(writer_schema, schema, dest)
+        raise SchemaResolutionError(writer_schema, reader_schema, "none of the reader's options match the writer")
+
+    def _gen_read_from_union(
+        self, writer_schema: List[SchemaType], reader_schema: SchemaType, dest: AST
+    ) -> List[stmt]:
+        """
+        Read data when the writer specified a union, but the reader did not.
+
+        The spec says:
+            if writer's schema is a union, but reader's is not:
+                If the reader's schema matches the selected writer's schema, it is
+                recursively resolved against it. If they do not match, an error is
+                signalled.
+
+        This is equivalent to the case where both writer and reader provided a
+        union, but as if the reader's union only has one option.
+        """
+        return self._gen_union_decode(writer_schema, [reader_schema], dest)
+
     def _gen_record_decode(
         self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST
     ) -> List[stmt]:
@@ -472,8 +537,12 @@ class ResolvedReaderCompiler(ReaderCompiler):
             if field["name"] not in writer_fields_by_name:
                 if "default" in field:
                     record_value.keys.append(Constant(value=field["name"]))
+                    # Dereference the field's type, if it's a named reference.
+                    field_schema = field["type"]
+                    if isinstance(field_schema, str) and field_schema in self.reader_names:
+                        field_schema = self.reader_names[field_schema]
                     record_value.values.append(
-                        literal_from_default(field["default"], field["type"])
+                        literal_from_default(field["default"], field_schema)
                     )
                 else:
                     raise SchemaResolutionError(
@@ -505,7 +574,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     ctx=Store(),
                 )
                 statements.extend(
-                    self._gen_resolved_decode(writer_field, reader_field, field_dest)
+                    self._gen_resolved_decode(writer_field["type"], reader_field["type"], field_dest)
                 )
             else:
                 statements.extend(self._gen_skip(writer_field["type"]))
@@ -637,6 +706,23 @@ class ResolvedReaderCompiler(ReaderCompiler):
         )
         return statements
 
+    def _gen_decode_recursive_write(self, writer_name: SchemaType, dest: AST) -> List[stmt]:
+        funcname = self._decoder_name(writer_name)
+        return [
+            Assign(
+                targets=[dest],
+                value=Call(
+                    func=Name(id=funcname, ctx=Load()),
+                    args=[Name(id="src", ctx=Load())],
+                    keywords=[],
+                ),
+            )
+        ]
+
+    def _gen_decode_recursive_read(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+        # I don't think this is reachable?
+        raise NotImplementedError("not implemented")
+
     def _gen_logical_decode(
         self, writer: SchemaType, reader: SchemaType, dest: AST
     ) -> List[stmt]:
@@ -728,6 +814,33 @@ class ResolvedReaderCompiler(ReaderCompiler):
         return statements
 
     ### Skip Methods ###
+    def _skipper_name(self, typename: str) -> str:
+        return f"_skip_{clean_name(typename)}"
+
+    def generate_skip_func(self, schema: SchemaType, name: str) -> FunctionDef:
+        """
+        Returns an AST describing a function which can skip past an Avro message
+        from a IO[bytes] source. The data is decoded from the writer's schema
+        and discarded.
+        """
+        func = FunctionDef(
+            name=name,
+            args=arguments(
+                args=[arg(arg="src")],
+                posonlyargs=[],
+                kwonlyargs=[],
+                kw_defaults=[],
+                defaults=[],
+            ),
+            body=[],
+            decorator_list=[],
+        )
+
+        func.body.extend(
+            self._gen_skip(schema)
+        )
+        return func
+
     def _gen_skip(self, schema: SchemaType) -> List[stmt]:
         """
         Generate code to skip data that follows a given schema.
@@ -736,9 +849,13 @@ class ResolvedReaderCompiler(ReaderCompiler):
             if schema in PRIMITIVES:
                 return self._gen_skip_primitive(schema)
             else:
-                raise NotImplementedError(
-                    f"skip not implemented for named types, have {schema}"
-                )
+                if schema in self.writer_names:
+                    if schema in self.writer_recursive_type_names:
+                        return self._gen_skip_recursive_type(schema)
+                    else:
+                        dereferenced_schema = self.writer_names[schema]
+                        return self._gen_skip(dereferenced_schema)
+                raise ValueError(f"unrecognized named type: {schema}")
 
         if isinstance(schema, list):
             return self._gen_skip_union(schema)
@@ -747,6 +864,10 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         if schema["type"] in PRIMITIVES:
             return self._gen_skip_primitive(schema["type"])
+
+        if schema["type"] not in AVRO_TYPES:
+            # Named type reference
+            return self._gen_skip(schema["type"])
 
         if schema["type"] == "record":
             return self._gen_skip_record(schema)
@@ -870,6 +991,19 @@ class ResolvedReaderCompiler(ReaderCompiler):
         """
         return self._gen_skip_primitive("long")
 
+    def _gen_skip_recursive_type(self, typename: str) -> List[stmt]:
+        funcname = self._skipper_name(typename)
+        return [
+            Expr(
+                value=Call(
+                    func=Name(id=funcname, ctx=Load()),
+                    args=[Name(id="src", ctx=Load())],
+                    keywords=[],
+                ),
+            )
+        ]
+
+
     def _gen_schema_error(self, msg: str) -> stmt:
         """
         Generate a statement which represents raising an exception.
@@ -883,64 +1017,78 @@ class ResolvedReaderCompiler(ReaderCompiler):
             cause=None,
         )
 
+    def schemas_match(self, writer: SchemaType, reader: SchemaType) -> bool:
+        """
+        To match, one of the following must hold:
+            both schemas are arrays whose item types match
+            both schemas are maps whose value types match
+            both schemas are enums whose (unqualified) names match
+            both schemas are fixed whose sizes and (unqualified) names match
+            both schemas are records with the same (unqualified) name
+            either schema is a union
+            both schemas have same primitive type
+            the writer's schema may be promoted to the reader's as follows:
+                int is promotable to long, float, or double
+                long is promotable to float or double
+                float is promotable to double
+                string is promotable to bytes
+                bytes is promotable to string
+        """
+        writer_type = schema_type(writer)
+        reader_type = schema_type(reader)
 
-def schemas_match(writer: SchemaType, reader: SchemaType) -> bool:
-    """
-    To match, one of the following must hold:
-        both schemas are arrays whose item types match
-        both schemas are maps whose value types match
-        both schemas are enums whose (unqualified) names match
-        both schemas are fixed whose sizes and (unqualified) names match
-        both schemas are records with the same (unqualified) name
-        either schema is a union
-        both schemas have same primitive type
-        the writer's schema may be promoted to the reader's as follows:
-            int is promotable to long, float, or double
-            long is promotable to float or double
-            float is promotable to double
-            string is promotable to bytes
-            bytes is promotable to string
-    """
-    writer_type = schema_type(writer)
-    reader_type = schema_type(reader)
+        # Dereference named types.
+        if writer_type not in AVRO_TYPES:
+            writer = self.writer_names[writer_type]
+            writer_type = schema_type(writer)
 
-    # Special case for logical decimal types. From the spec:
-    #
-    #   For the purposes of schema resolution, two schemas that are decimal
-    #   logical types match if their scales and precisions match.
-    if isinstance(writer, dict) and isinstance(reader, dict):
-        if (
-            writer.get("logicalType", "") == "decimal"
-            and reader.get("logicalType", "") == "decimal"
-        ):
-            if writer.get("scale", 0) != reader.get("scale", 0):
-                return False
-            if writer["precision"] != reader["precision"]:
-                return False
+        if reader_type not in AVRO_TYPES:
+            reader = self.reader_names[reader_type]
+            reader_type = schema_type(reader)
 
-    if writer_type == "array" and reader_type == "array":
-        return schemas_match(writer["items"], reader["items"])
-    if writer_type == "map" and reader_type == "map":
-        return schemas_match(writer["values"], reader["values"])
-    if writer_type == "enum" and reader_type == "enum":
-        return writer["name"] == reader["name"]
-    if writer_type == "fixed" and reader_type == "fixed":
-        return writer["name"] == reader["name"] and writer["size"] == reader["size"]
-    if writer_type == "record" and reader_type == "record":
-        return writer["name"] == reader["name"]
-    if writer_type == "union" or reader_type == "union":
-        return True
-    if writer_type in PRIMITIVES:
-        if writer_type == reader_type:
+        # Special case for logical decimal types. From the spec:
+        #
+        #   For the purposes of schema resolution, two schemas that are decimal
+        #   logical types match if their scales and precisions match.
+        if isinstance(writer, dict) and isinstance(reader, dict):
+            if (
+                writer.get("logicalType", "") == "decimal"
+                and reader.get("logicalType", "") == "decimal"
+            ):
+                if writer.get("scale", 0) != reader.get("scale", 0):
+                    return False
+                if writer["precision"] != reader["precision"]:
+                    return False
+
+        if writer_type == "array" and reader_type == "array":
+            return self.schemas_match(writer["items"], reader["items"])
+        if writer_type == "map" and reader_type == "map":
+            return self.schemas_match(writer["values"], reader["values"])
+        if writer_type == "enum" and reader_type == "enum":
+            return writer["name"] == reader["name"]
+        if writer_type == "fixed" and reader_type == "fixed":
+            return writer["name"] == reader["name"] and writer["size"] == reader["size"]
+        if writer_type == "record" and reader_type == "record":
+            if writer["name"] == reader["name"]:
+                return True
+            if "aliases" in reader:
+                for a in reader["aliases"]:
+                    if writer["name"] == a:
+                        return True
+            return False
+        if writer_type == "union" or reader_type == "union":
             return True
-        if writer_type == "int":
-            return reader_type in {"long", "float", "double"}
-        if writer_type == "long":
-            return reader_type in {"float", "double"}
-        if writer_type == "float":
-            return reader_type == "double"
-        if writer_type == "string":
-            return reader_type == "bytes"
-        if writer_type == "bytes":
-            return reader_type == "string"
-    return False
+        if writer_type in PRIMITIVES:
+            if writer_type == reader_type:
+                return True
+            if writer_type == "int":
+                return reader_type in {"long", "float", "double"}
+            if writer_type == "long":
+                return reader_type in {"float", "double"}
+            if writer_type == "float":
+                return reader_type == "double"
+            if writer_type == "string":
+                return reader_type == "bytes"
+            if writer_type == "bytes":
+                return reader_type == "string"
+        return False

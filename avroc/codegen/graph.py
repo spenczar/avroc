@@ -164,7 +164,10 @@ def _schema_to_graph(schema: SchemaType, names: Dict) -> List[NamegraphNode]:
         elif (
             schema_type == "enum" or schema_type == "fixed" or schema_type in PRIMITIVES
         ):
-            # Enums, fixeds, and primitives cannot include named references.
+            # Enums, fixeds, and primitives cannot include named references. But they can be "terminal nodes".
+            if "name" in schema:
+                names[schema["name"]] = NamegraphNode(schema)
+                return []
             return []
 
         else:

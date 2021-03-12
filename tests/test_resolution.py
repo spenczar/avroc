@@ -242,6 +242,20 @@ union_testcases = [
         input_msg=None,
         error_matcher="data written with type null is incompatible",
     ),
+    testcase(
+        label="read into union",
+        writer_schema="int",
+        reader_schema=["null", "int"],
+        input_msg=1,
+        output_msg=1
+    ),
+    failcase(
+        label="read into union with no compatible reader type",
+        writer_schema="int",
+        reader_schema=["null", "string", "bytes"],
+        input_msg=1,
+        error_matcher="none of the reader's options match the writer",
+    ),
 ]
 
 
@@ -349,6 +363,201 @@ record_testcases = [
             "null_field": None,
         },
     ),
+    testcase(
+        label="recursive record unchanged",
+        writer_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "LinkedListNode"]},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "LinkedListNode"]},
+            ],
+        },
+        input_msg={"value": "a", "next": {"value": "b", "next": None}},
+        output_msg={"value": "a", "next": {"value": "b", "next": None}},
+    ),
+    testcase(
+        label="recursive record renamed with alias",
+        writer_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "LinkedListNode"]},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Graph",
+            "aliases": ["LinkedListNode"],
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "Graph"]},
+            ],
+        },
+        input_msg={"value": "a", "next": {"value": "b", "next": None}},
+        output_msg={"value": "a", "next": {"value": "b", "next": None}},
+    ),
+    failcase(
+        label="type alias mismatch",
+        # The reader has an alias for a named type reference used by the writer
+        # - but the alias is to a type which doesn't match.
+        writer_schema={
+            "type": "record",
+            "name": "Hue",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "Hue"]},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Graph",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "color", "type": {
+                    "type": "record", "name": "Color", "aliases": ["Hue"], "fields": [],
+                }},
+                {"name": "next", "type": ["null", "Graph"]},
+            ],
+        },
+        input_msg={"value": "a", "next": {"value": "b", "next": None}},
+        error_matcher="schemas do not match",
+    ),
+    testcase(
+        label="recursion removed",
+        writer_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "LinkedListNode"]},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+            ],
+        },
+        input_msg={"value": "a", "next": {"value": "b", "next": None}},
+        output_msg={"value": "a"},
+    ),
+    testcase(
+        label="recursion added",
+        writer_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "LinkedListNode",
+            "fields": [
+                {"name": "value", "type": "string"},
+                {"name": "next", "type": ["null", "LinkedListNode"], "default": None},
+            ],
+        },
+        input_msg={"value": "a"},
+        output_msg={"value": "a", "next": None},
+    ),
+    testcase(
+        label="renamed named type reference",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {"name": "color2", "type": "Color"},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color1", "type": {"type": "enum", "name": "Hue", "aliases": ["Color"], "symbols": ["red", "yellow", "blue"]}},
+                {"name": "color2", "type": "Hue"},
+            ],
+        },
+        input_msg={"color1": "red", "color2": "blue"},
+        output_msg={"color1": "red", "color2": "blue"},
+    ),
+    testcase(
+        label="named type reference",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {"name": "color2", "type": "Color"},
+                {"name": "int_field", "type": "int"},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color2", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {"name": "color3", "type": "Color", "default": "yellow"},
+                {"name": "int_field", "type": "int"},
+            ],
+        },
+        input_msg={"color1": "red", "color2": "blue", "int_field": 1},
+        output_msg={"color2": "blue", "color3": "yellow", "int_field": 1},
+    ),
+    testcase(
+        label="unused named type reference",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {"name": "color2", "type": "Color"},
+                {"name": "int_field", "type": "int"},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "int_field", "type": "int"},
+            ],
+        },
+        input_msg={"color1": "red", "color2": "blue", "int_field": 1},
+        output_msg={"int_field": 1},
+    ),
+    testcase(
+        label="added type reference",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+            ],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "color2", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}, "default": "yellow",},
+                {"name": "color1", "type": "Color"},
+            ],
+        },
+        input_msg={"color1": "red"},
+        output_msg={"color1": "red", "color2": "yellow"},
+    ),
+
 ]
 
 
@@ -880,7 +1089,7 @@ incompatible_testcases = [
     failcase(
         label="mismatched types",
         writer_schema={"type": "array", "items": "int"},
-        reader_schema={"type": "map", "items": "int"},
+        reader_schema={"type": "map", "values": "int"},
         input_msg=[1, 2, 3],
         error_matcher="schemas do not match",
     ),

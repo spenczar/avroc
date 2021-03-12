@@ -1,6 +1,8 @@
 from avroc.util import SchemaType
 
 PRIMITIVES = {"int", "long", "float", "double", "bytes", "null", "string", "boolean"}
+COMPLEXES = {"enum", "fixed", "array", "map", "record", "union"}
+AVRO_TYPES = PRIMITIVES.union(COMPLEXES)
 
 
 def is_primitive_schema(schema: SchemaType) -> bool:
@@ -16,6 +18,4 @@ def schema_type(schema: SchemaType) -> str:
         return "union"
     if isinstance(schema, dict):
         return schema["type"]
-    if schema in PRIMITIVES:
-        return schema
-    raise ValueError("unknown schema type")
+    return schema

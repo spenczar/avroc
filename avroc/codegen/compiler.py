@@ -1,14 +1,12 @@
-from typing import DefaultDict, List, Dict, Callable
+from typing import DefaultDict, List, Dict, Callable, Set
 
 import collections
 import platform
 import sys
 
-from fastavro.schema import expand_schema
-
 from avroc.codegen.graph import find_recursive_types
 from avroc.util import SchemaType, rand_str
-from avroc.schema import expand_names
+from avroc.schema import expand_names, gather_named_types
 
 
 if sys.version_info >= (3, 9):
@@ -32,8 +30,10 @@ class Compiler:
     # themselves recursively when reading.
     recursive_types: List[Dict]
 
-    # Types by absolute name, or by alias.
+    # Types by absolute name
     named_types: Dict[str, SchemaType]
+
+    types_referenced_by_name: Set[str]
 
     pure_python: bool
 
@@ -43,12 +43,14 @@ class Compiler:
 
     def __init__(self, schema: SchemaType, entrypoint_name: str):
         self.schema = expand_names(schema)
+        self.named_types = gather_named_types(self.schema)
+        self.types_referenced_by_name = set()
+
         self.entrypoint_name = entrypoint_name
+        self.recursive_types = find_recursive_types(self.schema)
 
         self.variable_name_counts = collections.defaultdict(int)
         self.pure_python = platform.python_implementation() != "CPython"
-
-        self.recursive_types = find_recursive_types(self.schema)
 
     def new_variable(self, name: str) -> str:
         """
