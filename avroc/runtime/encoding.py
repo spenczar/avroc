@@ -85,7 +85,7 @@ def encode_double(msg: float) -> bytes:
 # String
 def decode_string(src: IO[bytes]) -> str:
     n = decode_long(src)
-    return src.read(n).decode("utf8")
+    return src.read(n).decode()
 
 
 def skip_string(src: IO[bytes]) -> None:
@@ -93,7 +93,7 @@ def skip_string(src: IO[bytes]) -> None:
 
 
 def encode_string(msg: str) -> bytes:
-    encoded = msg.encode("utf8")
+    encoded = msg.encode()
     buf = encode_long(len(encoded))
     buf += encoded
     return buf
