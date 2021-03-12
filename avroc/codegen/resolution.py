@@ -67,9 +67,13 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
 
         self.writer_recursive_types = find_recursive_types(self.writer_schema)
-        self.writer_recursive_type_names = {x["name"] for x in self.writer_recursive_types}
+        self.writer_recursive_type_names = {
+            x["name"] for x in self.writer_recursive_types
+        }
         self.reader_recursive_types = find_recursive_types(self.reader_schema)
-        self.reader_recursive_type_names = {x["name"] for x in self.writer_recursive_types}
+        self.reader_recursive_type_names = {
+            x["name"] for x in self.writer_recursive_types
+        }
         super(ResolvedReaderCompiler, self).__init__(writer_schema)
 
     def generate_module(self) -> Module:
@@ -425,7 +429,12 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         return [Assign(targets=[dest], value=dict_lookup)]
 
-    def _gen_union_decode(self, writer_schema: List[SchemaType], reader_schema: List[SchemaType], dest: AST) -> List[stmt]:
+    def _gen_union_decode(
+        self,
+        writer_schema: List[SchemaType],
+        reader_schema: List[SchemaType],
+        dest: AST,
+    ) -> List[stmt]:
         """
         Read data when both the writer and reader specified a union.
 
@@ -490,7 +499,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
         return statements
 
-    def _gen_read_into_union(self, writer_schema: SchemaType, reader_schema: List[SchemaType], dest: AST) -> List[stmt]:
+    def _gen_read_into_union(
+        self, writer_schema: SchemaType, reader_schema: List[SchemaType], dest: AST
+    ) -> List[stmt]:
         """
         Read data when the reader specified a union but the writer did not.
 
@@ -504,7 +515,11 @@ class ResolvedReaderCompiler(ReaderCompiler):
         for schema in reader_schema:
             if self.schemas_match(writer_schema, schema):
                 return self._gen_resolved_decode(writer_schema, schema, dest)
-        raise SchemaResolutionError(writer_schema, reader_schema, "none of the reader's options match the writer")
+        raise SchemaResolutionError(
+            writer_schema,
+            reader_schema,
+            "none of the reader's options match the writer",
+        )
 
     def _gen_read_from_union(
         self, writer_schema: List[SchemaType], reader_schema: SchemaType, dest: AST
@@ -539,7 +554,10 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     record_value.keys.append(Constant(value=field["name"]))
                     # Dereference the field's type, if it's a named reference.
                     field_schema = field["type"]
-                    if isinstance(field_schema, str) and field_schema in self.reader_names:
+                    if (
+                        isinstance(field_schema, str)
+                        and field_schema in self.reader_names
+                    ):
                         field_schema = self.reader_names[field_schema]
                     record_value.values.append(
                         literal_from_default(field["default"], field_schema)
@@ -574,7 +592,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     ctx=Store(),
                 )
                 statements.extend(
-                    self._gen_resolved_decode(writer_field["type"], reader_field["type"], field_dest)
+                    self._gen_resolved_decode(
+                        writer_field["type"], reader_field["type"], field_dest
+                    )
                 )
             else:
                 statements.extend(self._gen_skip(writer_field["type"]))
@@ -706,7 +726,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         )
         return statements
 
-    def _gen_decode_recursive_write(self, writer_name: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_decode_recursive_write(
+        self, writer_name: SchemaType, dest: AST
+    ) -> List[stmt]:
         funcname = self._decoder_name(writer_name)
         return [
             Assign(
@@ -719,7 +741,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
         ]
 
-    def _gen_decode_recursive_read(self, writer: SchemaType, reader: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_decode_recursive_read(
+        self, writer: SchemaType, reader: SchemaType, dest: AST
+    ) -> List[stmt]:
         # I don't think this is reachable?
         raise NotImplementedError("not implemented")
 
@@ -836,9 +860,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             decorator_list=[],
         )
 
-        func.body.extend(
-            self._gen_skip(schema)
-        )
+        func.body.extend(self._gen_skip(schema))
         return func
 
     def _gen_skip(self, schema: SchemaType) -> List[stmt]:
@@ -1002,7 +1024,6 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 ),
             )
         ]
-
 
     def _gen_schema_error(self, msg: str) -> stmt:
         """

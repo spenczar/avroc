@@ -247,7 +247,7 @@ union_testcases = [
         writer_schema="int",
         reader_schema=["null", "int"],
         input_msg=1,
-        output_msg=1
+        output_msg=1,
     ),
     failcase(
         label="read into union with no compatible reader type",
@@ -423,9 +423,15 @@ record_testcases = [
             "name": "Graph",
             "fields": [
                 {"name": "value", "type": "string"},
-                {"name": "color", "type": {
-                    "type": "record", "name": "Color", "aliases": ["Hue"], "fields": [],
-                }},
+                {
+                    "name": "color",
+                    "type": {
+                        "type": "record",
+                        "name": "Color",
+                        "aliases": ["Hue"],
+                        "fields": [],
+                    },
+                },
                 {"name": "next", "type": ["null", "Graph"]},
             ],
         },
@@ -478,7 +484,14 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {
+                    "name": "color1",
+                    "type": {
+                        "type": "enum",
+                        "name": "Color",
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                },
                 {"name": "color2", "type": "Color"},
             ],
         },
@@ -486,7 +499,15 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color1", "type": {"type": "enum", "name": "Hue", "aliases": ["Color"], "symbols": ["red", "yellow", "blue"]}},
+                {
+                    "name": "color1",
+                    "type": {
+                        "type": "enum",
+                        "name": "Hue",
+                        "aliases": ["Color"],
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                },
                 {"name": "color2", "type": "Hue"},
             ],
         },
@@ -499,7 +520,14 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {
+                    "name": "color1",
+                    "type": {
+                        "type": "enum",
+                        "name": "Color",
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                },
                 {"name": "color2", "type": "Color"},
                 {"name": "int_field", "type": "int"},
             ],
@@ -508,7 +536,14 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color2", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {
+                    "name": "color2",
+                    "type": {
+                        "type": "enum",
+                        "name": "Color",
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                },
                 {"name": "color3", "type": "Color", "default": "yellow"},
                 {"name": "int_field", "type": "int"},
             ],
@@ -522,7 +557,14 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {
+                    "name": "color1",
+                    "type": {
+                        "type": "enum",
+                        "name": "Color",
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                },
                 {"name": "color2", "type": "Color"},
                 {"name": "int_field", "type": "int"},
             ],
@@ -543,21 +585,35 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color1", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}},
+                {
+                    "name": "color1",
+                    "type": {
+                        "type": "enum",
+                        "name": "Color",
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                },
             ],
         },
         reader_schema={
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "color2", "type": {"type": "enum", "name": "Color", "symbols": ["red", "yellow", "blue"]}, "default": "yellow",},
+                {
+                    "name": "color2",
+                    "type": {
+                        "type": "enum",
+                        "name": "Color",
+                        "symbols": ["red", "yellow", "blue"],
+                    },
+                    "default": "yellow",
+                },
                 {"name": "color1", "type": "Color"},
             ],
         },
         input_msg={"color1": "red"},
         output_msg={"color1": "red", "color2": "yellow"},
     ),
-
 ]
 
 
