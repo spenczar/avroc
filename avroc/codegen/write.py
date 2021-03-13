@@ -214,11 +214,50 @@ class WriterCompiler(Compiler):
         statements: List[stmt] = []
 
         for field in schema["fields"]:
-            field_value = Subscript(
-                value=msg,
-                slice=Index(value=Constant(value=field["name"])),
-                ctx=Load(),
-            )
+            if "default" in field:
+                # Explicit default: generate code like
+                #   msg.get(field["name"], field["default"])
+
+                # We need to know the schema of the field in order to know how
+                # to construct a literal value for the field default.
+                field_schema = field["type"]
+                if field_schema in self.named_types:
+                    field_schema = self.named_types[field_schema]
+
+                field_value = Call(
+                    func=Attribute(
+                        value=msg,
+                        attr="get",
+                        ctx=Load(),
+                    ),
+                    args=[
+                        Constant(value=field["name"]),
+                        literal_from_default(field["default"], field_schema)
+                    ],
+                    keywords=[],
+                )
+            elif isinstance(field["type"], list) and "null" in field["type"]:
+                # Nullable union: generate code like
+                #   msg.get(field["name"])
+                field_value = Call(
+                    func=Attribute(
+                        value=msg,
+                        attr="get",
+                        ctx=Load(),
+                    ),
+                    args=[
+                        Constant(value=field["name"]),
+                    ],
+                    keywords=[],
+                )
+            else:
+                # No default: generate code like
+                #   msg[field["name"]]
+                field_value = Subscript(
+                    value=msg,
+                    slice=Index(value=Constant(value=field["name"])),
+                    ctx=Load(),
+                )
             statements.extend(self._gen_encoder(field["type"], buf, field_value))
 
         return statements
