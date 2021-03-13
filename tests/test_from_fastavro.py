@@ -654,3 +654,53 @@ def test_null_defaults_are_not_used():
     datum_to_read = {"entity": {"foo": "this is an instance of schema A"}}
 
     assert [datum_to_read] == roundtrip(schema, [datum_to_read])
+
+@pytest.mark.xfail
+def test_union_schema_ignores_extra_fields():
+    # Our writer is more strict, and will emit an error because it doesn't think
+    # that the given message matches any of the cases in the union.
+    """https://github.com/fastavro/fastavro/issues/274"""
+    schema = [
+        {"type": "record", "name": "A", "fields": [{"name": "name", "type": "string"}]},
+        {
+            "type": "record",
+            "name": "B",
+            "fields": [{"name": "other_name", "type": "string"}],
+        },
+    ]
+
+    records = [{"name": "abc", "other": "asd"}]
+
+    assert [{"name": "abc"}] == roundtrip(schema, records)
+
+
+def test_appending_records(tmpdir):
+    """https://github.com/fastavro/fastavro/issues/276"""
+    schema = {
+        "type": "record",
+        "name": "test_appending_records",
+        "fields": [
+            {
+                "name": "field",
+                "type": "string",
+            }
+        ],
+    }
+
+    test_file = str(tmpdir.join("test.avro"))
+
+    with open(test_file, "wb") as new_file:
+        writer = avroc.files.AvroFileWriter(new_file, schema)
+        writer.write({"field": "foo"})
+        writer.flush()
+
+    with open(test_file, "a+b") as new_file:
+        writer = avroc.files.AvroFileWriter(new_file, schema)
+        writer.write({"field": "bar"})
+        writer.flush()
+
+    with open(test_file, "rb") as new_file:
+        reader = avroc.files.AvroFileReader(new_file)
+        new_records = list(reader)
+
+    assert new_records == [{"field": "foo"}, {"field": "bar"}]

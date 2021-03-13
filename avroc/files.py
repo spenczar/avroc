@@ -74,7 +74,26 @@ class AvroFileWriter:
 
         self._write = WriterCompiler(schema).compile()
 
-        self._write_header()
+        if is_appendable(self.fo):
+            self._read_header()
+        else:
+            self._write_header()
+
+    def _read_header(self) -> NoReturn:
+        self.fo.seek(0)
+        header = read_header(self.fo)
+        existing_schema = json.loads(header["meta"]["avro.schema"].decode())
+        if existing_schema != self.schema:
+            raise ValueError(f"provided schema {self.schema} does not match file writer schema {existing_schema}")
+
+        codec_id = header["meta"].get("avro.codec", b"null")
+        if codec_id not in codec_by_id:
+            raise ValueError(f"unknown codec: {codec_id}")
+        self.codec = codec_by_id.get(codec_id)()
+        self.codec
+        self.sync_marker = header["sync"]
+        self.fo.seek(0, 2)
+
 
     def _write_header(self) -> NoReturn:
         meta = {
@@ -153,3 +172,21 @@ class AvroFileReader:
         if codec_id not in codec_by_id:
             raise ValueError(f"unknown codec: {codec_id}")
         self.codec = codec_by_id.get(codec_id)()
+
+
+def is_appendable(fo):
+    if fo.seekable() and fo.tell() != 0:
+        if "<stdout>" == getattr(fo, "name", ""):
+            # In OSX, sys.stdout is seekable and has a non-zero tell() but
+            # we wouldn't want to append to a stdout. In the python REPL,
+            # sys.stdout is named `<stdout>`
+            return False
+        if fo.readable():
+            return True
+        else:
+            raise ValueError(
+                "When appending to an avro file you must use the "
+                + "'a+' mode, not just 'a'"
+            )
+    else:
+        return False
