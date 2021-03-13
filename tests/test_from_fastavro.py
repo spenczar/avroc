@@ -1,6 +1,7 @@
 import pytest
 import io
 import avroc.files
+import avroc.messages
 import avroc.codegen.read
 import avroc.codegen.write
 import avroc.codegen.resolution
@@ -511,3 +512,145 @@ def test_py37_runtime_error():
             # than 3.7
             reader = avroc.files.AvroFileReader(io.BytesIO(fo.read()))
             list(reader)
+
+
+# Currently fails: we raise struct.error, not EOFError.
+@pytest.mark.xfail(strict=True)
+def test_eof_error():
+    schema = {
+        "type": "record",
+        "name": "test_eof_error",
+        "fields": [
+            {
+                "name": "test",
+                "type": "float",
+            }
+        ],
+    }
+    record = {"test": 1.234}
+
+    encode = avroc.messages.message_encoder(schema)
+    encoded = encode(record)
+
+    # Back up one byte and truncate
+    encoded = encoded[:-1]
+    buf = io.BytesIO(encoded)
+    with pytest.raises(EOFError):
+        decode = avroc.messages.message_decoder(schema)
+        decode(buf)
+
+
+def test_passing_same_schema_to_reader():
+    """https://github.com/fastavro/fastavro/issues/244"""
+    schema = {
+        "namespace": "test.avro.training",
+        "name": "SomeMessage",
+        "type": "record",
+        "fields": [
+            {
+                "name": "is_error",
+                "type": "boolean",
+                "default": False,
+            },
+            {
+                "name": "outcome",
+                "type": [
+                    "SomeMessage",
+                    {
+                        "type": "record",
+                        "name": "ErrorRecord",
+                        "fields": [
+                            {
+                                "name": "errors",
+                                "type": {"type": "map", "values": "string"},
+                                "doc": "doc",
+                            }
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
+
+    records = [
+        {
+            "is_error": True,
+            "outcome": {
+                "errors": {"field_1": "some_message", "field_2": "some_other_message"}
+            },
+        }
+    ]
+
+    assert records == roundtrip_schema_migration(schema, schema, records)
+
+
+def test_embedded_records_get_namespaced_correctly():
+    schema = {
+        "namespace": "test",
+        "name": "OuterName",
+        "type": "record",
+        "fields": [
+            {
+                "name": "data",
+                "type": [
+                    {
+                        "type": "record",
+                        "name": "UUID",
+                        "fields": [{"name": "uuid", "type": "string"}],
+                    },
+                    {
+                        "type": "record",
+                        "name": "Abstract",
+                        "fields": [
+                            {
+                                "name": "uuid",
+                                "type": "UUID",
+                            }
+                        ],
+                    },
+                    {
+                        "type": "record",
+                        "name": "Concrete",
+                        "fields": [
+                            {"name": "abstract", "type": "Abstract"},
+                            {
+                                "name": "custom",
+                                "type": "string",
+                            },
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+    records = [
+        {"data": {"abstract": {"uuid": {"uuid": "some_uuid"}}, "custom": "some_string"}}
+    ]
+
+    assert records == roundtrip(schema, records)
+
+
+def test_null_defaults_are_not_used():
+    """https://github.com/fastavro/fastavro/issues/272"""
+    schema = [
+        {
+            "type": "record",
+            "name": "A",
+            "fields": [{"name": "foo", "type": ["string", "null"]}],
+        },
+        {
+            "type": "record",
+            "name": "B",
+            "fields": [{"name": "bar", "type": ["string", "null"]}],
+        },
+        {
+            "type": "record",
+            "name": "AOrB",
+            "fields": [{"name": "entity", "type": ["A", "B"]}],
+        },
+    ]
+
+    datum_to_read = {"entity": {"foo": "this is an instance of schema A"}}
+
+    assert [datum_to_read] == roundtrip(schema, [datum_to_read])
