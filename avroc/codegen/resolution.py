@@ -571,7 +571,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         # We've constructed the AST node representing a dictionary literal. Now,
         # assign it to a variable.
-        record_value_name = self.new_variable(reader_schema["name"])
+        record_value_name = self.new_variable(clean_name(reader_schema["name"]))
         statements: List[stmt] = []
         statements.append(
             Assign(
