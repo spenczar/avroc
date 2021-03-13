@@ -162,6 +162,13 @@ class ReaderCompiler(Compiler):
                     # Yep, recursion. Just generate a function call - we'll have
                     # a separate function to handle this type.
                     return self._gen_recursive_decode_call(schema, dest)
+                else:
+                    # Not recursion. We can inline the decode, assuming the
+                    # schema was already present.
+                    referenced_schema = self.named_types.get(schema)
+                    if referenced_schema is None:
+                        raise ValueError(f"schema {schema} was used before it is defined")
+                    return self._gen_decode(referenced_schema, dest)
         if isinstance(schema, list):
             return self._gen_union_decode(
                 options=schema,

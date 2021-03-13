@@ -157,6 +157,13 @@ class WriterCompiler(Compiler):
                     # Yep, recursion. Just generate a function call - we'll have
                     # a separate function to handle this type.
                     return self._gen_recursive_encode_call(schema, buf, msg)
+                else:
+                    # Not recursion. We can inline the encode, assuming the
+                    # schema was already present.
+                    referenced_schema = self.named_types.get(schema)
+                    if referenced_schema is None:
+                        raise ValueError(f"schema {schema} was used before it is defined")
+                    return self._gen_encoder(referenced_schema, buf, msg)
 
         if isinstance(schema, list):
             return self._gen_union_encoder(options=schema, buf=buf, msg=msg)
