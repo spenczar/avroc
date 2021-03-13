@@ -1,12 +1,14 @@
-from typing import NoReturn, Dict, TypedDict
+from typing import NoReturn, Dict, TypedDict, IO, Any, Optional
 import random
 import json
+import io
 
 
 from avroc.codegen.read import ReaderCompiler
 from avroc.codegen.write import WriterCompiler
+from avroc.codegen.resolution import ResolvedReaderCompiler
 from avroc.util import SchemaType
-from avroc.codec import Codec, DeflateCodec, NullCodec, code_by_id
+from avroc.codec import Codec, DeflateCodec, NullCodec, codec_by_id
 from avroc.runtime import encoding
 
 AvroFileHeaderSchema = {
@@ -28,7 +30,7 @@ avro_file_header_write = WriterCompiler(AvroFileHeaderSchema).compile()
 avro_file_header_read = ReaderCompiler(AvroFileHeaderSchema).compile()
 
 
-def write_header(fo: Bytes[IO], meta: Dict[str, bytes]) -> bytes:
+def write_header(fo: IO[bytes], meta: Dict[str, bytes]) -> bytes:
     """
     Write the Avro Object Container File header to a file-like output. Returns a
     randomly-generated 16-byte sync marker, which should be appended after data
@@ -40,11 +42,11 @@ def write_header(fo: Bytes[IO], meta: Dict[str, bytes]) -> bytes:
         "meta": meta,
         "sync": sync_marker,
     }
-    avro_file_header_write(fo, obj)
+    fo.write(avro_file_header_write(obj))
     return sync_marker
 
 
-def read_header(fo: Bytes[IO]) -> AvroFileHeader:
+def read_header(fo: IO[bytes]) -> AvroFileHeader:
     """
     Read an Avro Object Container File Format header from a file-like input.
     """
@@ -52,7 +54,7 @@ def read_header(fo: Bytes[IO]) -> AvroFileHeader:
 
 
 class AvroFileWriter:
-    def __init__(self, fo: Bytes[IO], schema: SchemaType, codec: Codec, block_size: int=1000):
+    def __init__(self, fo: IO[bytes], schema: SchemaType, codec: Codec, block_size: int=1000):
         self.fo = fo
         self.codec = codec
         self.schema = schema
@@ -63,31 +65,33 @@ class AvroFileWriter:
 
         self._write = WriterCompiler(schema).compile()
 
-    def _write_header(self) -> bytes:
+        self._write_header()
+
+    def _write_header(self) -> NoReturn:
         meta = {
             "avro.schema": json.dumps(self.schema).encode(),
-            "avro.codec": self.codec.id().encode(),
+            "avro.codec": self.codec.id(),
         }
         self.sync_marker = write_header(self.fo, meta)
 
     def write(self, msg: Any) -> NoReturn:
-        self._write(self.buf, msg)
+        self.buf.write(self._write(msg))
         self.current_block_size += 1
         if self.current_block_size >= self.block_size:
             self.flush()
 
     def flush(self):
         # Write the number of records.
-        encoding.encode_long(self.fo, self.current_block_size)
+        self.fo.write(encoding.encode_long(self.current_block_size))
 
         # Write the encoded record data.
         self.buf.seek(0)
         raw_bytes = self.buf.read()
         encoded_bytes = self.codec.encode(raw_bytes)
-        encoding.encode_bytes(self.fo, encoded_bytes)
+        self.fo.write(encoding.encode_bytes(encoded_bytes))
 
         # Write the sync marker.
-        fo.write(self.sync_marker)
+        self.fo.write(self.sync_marker)
 
         # Reset counter.
         self.current_block_size = 0
@@ -99,13 +103,13 @@ class AvroFileWriter:
 
 
 class AvroFileReader:
-    def __init__(self, fo: Bytes[IO], schema: Optional[SchemaType]=None):
+    def __init__(self, fo: IO[bytes], schema: Optional[SchemaType]=None):
         self.fo = fo
         self._read_header()
         if schema is None:
-            self._read = avroc.codegen.read.ReaderCompiler(self.writer_schema).compile()
+            self._read = ReaderCompiler(self.writer_schema).compile()
         else:
-            self._read = avroc.codegen.resolution.ResolvedReaderCompiler(self.writer_schema, schema).compile()
+            self._read = ResolvedReaderCompiler(self.writer_schema, schema).compile()
         self._iterator = self._read_blocks()
 
     def _read_blocks(self):
@@ -119,6 +123,8 @@ class AvroFileReader:
             byte_buffer = io.BytesIO(decoded_bytes)
             for _ in range(num_records):
                 yield self._read(byte_buffer)
+            marker = self.fo.read(16)
+            assert marker == self.sync_marker, "file is corrupted"
 
     def __iter__(self):
         return self._iterator
@@ -130,10 +136,10 @@ class AvroFileReader:
         header = read_header(self.fo)
         if header["magic"] != b'Obj\x01':
             raise ValueError("incorrect magic byte prefix, is this an Avro object container file?")
-        self.sync = header["sync"]
+        self.sync_marker = header["sync"]
         self.writer_schema = json.loads(header["meta"]["avro.schema"].decode())
 
-        codec_id = header["meta"]["avro.codec"]
-        if codec_id not in code_by_id:
+        codec_id = header["meta"].get("avro.codec", b"null")
+        if codec_id not in codec_by_id:
             raise ValueError(f"unknown codec: {codec_id}")
-        self.codec = codec_by_id.get(codec_id)
+        self.codec = codec_by_id.get(codec_id)()
