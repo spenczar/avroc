@@ -4,13 +4,14 @@ from fastavro._schema_common import PRIMITIVES
 from avroc.util import clean_name, SchemaType, LogicalTypeError
 from avroc.codegen.compiler import Compiler
 from avroc.codegen.astutil import (
-    extend_buffer,
-    call_encoder,
-    mult,
     add,
+    call_encoder,
+    extend_buffer,
     floor_div,
-    method_call,
     func_call,
+    literal_from_default,
+    method_call,
+    mult,
 )
 
 INT_MAX_VALUE = (1 << 31) - 1
