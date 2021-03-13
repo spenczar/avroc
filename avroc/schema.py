@@ -40,7 +40,7 @@ def expand_names(schema: SchemaType, enclosing_namespace: str = "") -> SchemaTyp
         return schema
     if schema["type"] in PRIMITIVES:
         return schema
-    if schema["type"] not in {"enum", "fixed", "record"}:
+    if schema["type"] not in {"enum", "fixed", "record", "error"}:
         # Named type reference.
         return expand_names(schema["type"])
 
@@ -68,7 +68,7 @@ def expand_names(schema: SchemaType, enclosing_namespace: str = "") -> SchemaTyp
         return schema
 
     # Record types set the namespace for any definitions they contain.
-    assert schema["type"] == "record"
+    assert schema["type"] in {"record", "error"}
     expanded_fields = []
     for field in schema["fields"]:
         field = field.copy()

@@ -134,7 +134,7 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
             assert isinstance(v, str)
             assert v in schema["symbols"]
             return Constant(value=v)
-        if schema["type"] == "record":
+        if schema["type"] in {"record", "error"}:
             # Default for a record is a dictionary; keys are field names and
             # values are according to the schema of the field.
             assert isinstance(v, dict)

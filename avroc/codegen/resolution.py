@@ -291,7 +291,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 reader_schema.get("default"),
                 dest,
             )
-        if writer_type == "record" and reader_type == "record":
+        if writer_type in {"record", "error"} and reader_type in {"record", "error"}:
             return self._gen_record_decode(writer_schema, reader_schema, dest)
 
         if writer_type == "array" and reader_type == "array":
@@ -891,7 +891,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             # Named type reference
             return self._gen_skip(schema["type"])
 
-        if schema["type"] == "record":
+        if schema["type"] in {"record", "error"}:
             return self._gen_skip_record(schema)
 
         if schema["type"] == "map":
@@ -1089,7 +1089,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             return writer["name"] == reader["name"]
         if writer_type == "fixed" and reader_type == "fixed":
             return writer["name"] == reader["name"] and writer["size"] == reader["size"]
-        if writer_type == "record" and reader_type == "record":
+        if writer_type in {"record", "error"} and reader_type in {"record", "error"}:
             if writer["name"] == reader["name"]:
                 return True
             if "aliases" in reader:

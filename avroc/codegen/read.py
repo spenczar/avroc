@@ -179,7 +179,7 @@ class ReaderCompiler(Compiler):
                     primitive_type=schema_type,
                     dest=dest,
                 )
-            if schema_type == "record":
+            if schema_type == "record" or schema_type == "error":
                 return self._gen_record_decode(
                     schema=schema,
                     dest=dest,

@@ -1,7 +1,7 @@
 from avroc.util import SchemaType
 
 PRIMITIVES = {"int", "long", "float", "double", "bytes", "null", "string", "boolean"}
-COMPLEXES = {"enum", "fixed", "array", "map", "record", "union"}
+COMPLEXES = {"enum", "fixed", "array", "map", "record", "union", "error"}
 AVRO_TYPES = PRIMITIVES.union(COMPLEXES)
 
 

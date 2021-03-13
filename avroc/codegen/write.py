@@ -174,7 +174,7 @@ class WriterCompiler(Compiler):
                     buf=buf,
                     msg=msg,
                 )
-            if schema["type"] == "record":
+            if schema["type"] == "record" or schema["type"] == "error":
                 return self._gen_record_encoder(schema, buf, msg)
             if schema["type"] == "array":
                 return self._gen_array_encoder(schema["items"], buf, msg)
@@ -422,7 +422,7 @@ class WriterCompiler(Compiler):
         if schema["type"] == "map":
             return func_call("is_map", [msg])
 
-        if schema["type"] == "record":
+        if schema["type"] == "record" or schema["type"] == "error":
             field_names = Set(
                 elts=[Constant(value=f["name"]) for f in schema["fields"]]
             )
