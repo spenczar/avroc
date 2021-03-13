@@ -7,6 +7,6 @@ setup(
         "avroc.codegen",
         "avroc.runtime",
     ],
-    install_requires=["fastavro"],
+    install_requires=["fastavro", "python-snappy", "zstandard"],
     tests_require=["pytest", "fastavro"],
 )
