@@ -62,7 +62,7 @@ def read_header(fo: IO[bytes]) -> AvroFileHeader:
 
 class AvroFileWriter:
     def __init__(
-        self, fo: IO[bytes], schema: SchemaType, codec: Codec, block_size: int = 1000
+        self, fo: IO[bytes], schema: SchemaType, codec: Codec=NullCodec(), block_size: int = 1000
     ):
         self.fo = fo
         self.codec = codec
