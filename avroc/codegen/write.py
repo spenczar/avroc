@@ -431,16 +431,15 @@ class WriterCompiler(Compiler):
             elif schema == "float":
                 return func_call("is_float", [msg])
             else:
-                typename = schema
-                # Named type reference. Could be recursion.
-                recursive_type_dict = {t["name"]: t for t in self.recursive_types}
-                recursive_schema = recursive_type_dict.get(typename, None)
-                if recursive_schema is not None:
-                    return self._gen_union_type_test(recursive_schema, msg)
+                # Named type reference. Look it up.
+                referenced_schema = self.named_types[schema]
+                return self._gen_union_type_test(referenced_schema, msg)
+
 
         # Union-of-union is explicitly forbidden by the Avro spec, so all
         # thats left is dict types.
-        assert isinstance(schema, dict), "Union-of-union is forbidden by Avro spec"
+        assert not isinstance(schema, list), "Union-of-union is forbidden by Avro spec"
+        assert isinstance(schema, dict)
 
         if "logicalType" in schema:
             lt = schema["logicalType"]
