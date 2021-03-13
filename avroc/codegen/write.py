@@ -52,6 +52,7 @@ from ast import (
     Not,
     NotEq,
     Pow,
+    Raise,
     Return,
     Set,
     Store,
@@ -411,6 +412,15 @@ class WriterCompiler(Compiler):
             else:
                 prev_if.orelse = [if_stmt]
             prev_if = if_stmt
+        # In the final else, raise an error.
+        prev_if.orelse = [Raise(
+            exc=Call(
+                func=Name(id="ValueError", ctx=Load()),
+                args=[Constant(value="message type doesn't match any options in the union")],
+                keywords=[],
+            ),
+            cause=None,
+        )]
 
         return statements
 
