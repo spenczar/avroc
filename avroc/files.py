@@ -1,15 +1,20 @@
-from typing import NoReturn, Dict, TypedDict, IO, Any, Optional
-import random
+from typing import NoReturn, Dict, IO, Any, Optional
+import secrets
 import json
 import io
-
 
 from avroc.codegen.read import ReaderCompiler
 from avroc.codegen.write import WriterCompiler
 from avroc.codegen.resolution import ResolvedReaderCompiler
 from avroc.util import SchemaType
-from avroc.codec import Codec, DeflateCodec, NullCodec, codec_by_id
+from avroc.codec import Codec, NullCodec, codec_by_id
 from avroc.runtime import encoding
+
+try:
+    from typing import TypedDict
+except ImportError:
+    TypedDict = Dict
+
 
 AvroFileHeaderSchema = {
     "type": "record",
@@ -38,7 +43,7 @@ def write_header(fo: IO[bytes], meta: Dict[str, bytes]) -> bytes:
     randomly-generated 16-byte sync marker, which should be appended after data
     blocks.
     """
-    sync_marker = random.randbytes(16)
+    sync_marker = secrets.token_bytes(16)
     obj = {
         "magic": b"Obj\x01",
         "meta": meta,
