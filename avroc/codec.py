@@ -31,7 +31,7 @@ class NullCodec(Codec):
 
 
 class DeflateCodec(Codec):
-    def __init__(self, compression_level: Optional[int]=None):
+    def __init__(self, compression_level: Optional[int] = None):
         self.compression_level = compression_level
 
     def id(self) -> bytes:
@@ -50,11 +50,11 @@ class DeflateCodec(Codec):
 
 class SnappyCodec(Codec):
     def id(self) -> bytes:
-        return b'snappy'
+        return b"snappy"
 
     def encode(self, data: bytes) -> bytes:
         encoded = snappy.compress(data)
-        encoded += (zlib.crc32(encoded).to_bytes(4, 'big'))
+        encoded += zlib.crc32(encoded).to_bytes(4, "big")
         return encoded
 
     def decode(self, source: bytes) -> bytes:
@@ -65,7 +65,7 @@ class SnappyCodec(Codec):
 
 class Bzip2Codec(Codec):
     def id(self) -> bytes:
-        return b'bzip2'
+        return b"bzip2"
 
     def encode(self, data: bytes) -> bytes:
         return bz2.compress(data)
@@ -76,7 +76,7 @@ class Bzip2Codec(Codec):
 
 class XZCodec(Codec):
     def id(self) -> bytes:
-        return b'xz'
+        return b"xz"
 
     def encode(self, data: bytes) -> bytes:
         return lzma.compress(data)
@@ -87,7 +87,7 @@ class XZCodec(Codec):
 
 class ZstandardCodec(Codec):
     def id(self) -> bytes:
-        return b'zstandard'
+        return b"zstandard"
 
     def encode(self, data: bytes) -> bytes:
         return zstandard.ZstdCompressor().compress(data)

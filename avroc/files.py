@@ -18,13 +18,15 @@ AvroFileHeaderSchema = {
         {"name": "magic", "type": {"type": "fixed", "name": "Magic", "size": 4}},
         {"name": "meta", "type": {"type": "map", "values": "bytes"}},
         {"name": "sync", "type": {"type": "fixed", "name": "Sync", "size": 16}},
-    ]
+    ],
 }
+
 
 class AvroFileHeader(TypedDict):
     magic: bytes
     meta: Dict[str, bytes]
     sync: bytes
+
 
 avro_file_header_write = WriterCompiler(AvroFileHeaderSchema).compile()
 avro_file_header_read = ReaderCompiler(AvroFileHeaderSchema).compile()
@@ -38,7 +40,7 @@ def write_header(fo: IO[bytes], meta: Dict[str, bytes]) -> bytes:
     """
     sync_marker = random.randbytes(16)
     obj = {
-        "magic": b'Obj\x01',
+        "magic": b"Obj\x01",
         "meta": meta,
         "sync": sync_marker,
     }
@@ -54,7 +56,9 @@ def read_header(fo: IO[bytes]) -> AvroFileHeader:
 
 
 class AvroFileWriter:
-    def __init__(self, fo: IO[bytes], schema: SchemaType, codec: Codec, block_size: int=1000):
+    def __init__(
+        self, fo: IO[bytes], schema: SchemaType, codec: Codec, block_size: int = 1000
+    ):
         self.fo = fo
         self.codec = codec
         self.schema = schema
@@ -96,14 +100,13 @@ class AvroFileWriter:
         # Reset counter.
         self.current_block_size = 0
 
-
     def close(self):
         self.flush()
         self.fo.close()
 
 
 class AvroFileReader:
-    def __init__(self, fo: IO[bytes], schema: Optional[SchemaType]=None):
+    def __init__(self, fo: IO[bytes], schema: Optional[SchemaType] = None):
         self.fo = fo
         self._read_header()
         if schema is None:
@@ -134,8 +137,10 @@ class AvroFileReader:
 
     def _read_header(self):
         header = read_header(self.fo)
-        if header["magic"] != b'Obj\x01':
-            raise ValueError("incorrect magic byte prefix, is this an Avro object container file?")
+        if header["magic"] != b"Obj\x01":
+            raise ValueError(
+                "incorrect magic byte prefix, is this an Avro object container file?"
+            )
         self.sync_marker = header["sync"]
         self.writer_schema = json.loads(header["meta"]["avro.schema"].decode())
 

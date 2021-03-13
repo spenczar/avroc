@@ -12,9 +12,11 @@ NO_DATA = {
     "testDataFileMeta.avro",
 }
 
+
 def _test_files():
     for filename in glob.iglob(os.path.join(data_dir, "*.avro")):
         yield filename
+
 
 @pytest.mark.parametrize("filename", _test_files())
 def test_file(filename):

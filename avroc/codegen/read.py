@@ -167,7 +167,9 @@ class ReaderCompiler(Compiler):
                     # schema was already present.
                     referenced_schema = self.named_types.get(schema)
                     if referenced_schema is None:
-                        raise ValueError(f"schema {schema} was used before it is defined")
+                        raise ValueError(
+                            f"schema {schema} was used before it is defined"
+                        )
                     return self._gen_decode(referenced_schema, dest)
         if isinstance(schema, list):
             return self._gen_union_decode(

@@ -4,6 +4,7 @@ import avroc.codegen.read
 import avroc.codegen.write
 import avroc.codegen.resolution
 
+
 class roundtrip_testcase:
     def __init__(self, schema, records, reader_schema=None):
         self.schema = schema
