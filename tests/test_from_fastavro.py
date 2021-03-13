@@ -35,7 +35,6 @@ def roundtrip_schema_migration(old_schema, new_schema, records):
     return new_records
 
 
-
 def test_default_values():
     schema = {
         "type": "record",
@@ -465,9 +464,11 @@ def test_schema_is_custom_dict_type():
     }
     other_type_schema = CustomDict(schema)
 
-    records = [{
-        "description": "value",
-    }]
+    records = [
+        {
+            "description": "value",
+        }
+    ]
 
     new_records = roundtrip_schema_migration(schema, other_type_schema, records)
 
@@ -493,6 +494,7 @@ def test_long_bounds():
 
 
 data_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "testdata")
+
 
 def test_py37_runtime_error():
     """On Python 3.7 this test would cause the StopIteration to get raised as
@@ -654,6 +656,7 @@ def test_null_defaults_are_not_used():
     datum_to_read = {"entity": {"foo": "this is an instance of schema A"}}
 
     assert [datum_to_read] == roundtrip(schema, [datum_to_read])
+
 
 @pytest.mark.xfail
 def test_union_schema_ignores_extra_fields():

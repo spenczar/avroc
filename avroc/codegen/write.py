@@ -233,7 +233,7 @@ class WriterCompiler(Compiler):
                     ),
                     args=[
                         Constant(value=field["name"]),
-                        literal_from_default(field["default"], field_schema)
+                        literal_from_default(field["default"], field_schema),
                     ],
                     keywords=[],
                 )
@@ -413,14 +413,20 @@ class WriterCompiler(Compiler):
                 prev_if.orelse = [if_stmt]
             prev_if = if_stmt
         # In the final else, raise an error.
-        prev_if.orelse = [Raise(
-            exc=Call(
-                func=Name(id="ValueError", ctx=Load()),
-                args=[Constant(value="message type doesn't match any options in the union")],
-                keywords=[],
-            ),
-            cause=None,
-        )]
+        prev_if.orelse = [
+            Raise(
+                exc=Call(
+                    func=Name(id="ValueError", ctx=Load()),
+                    args=[
+                        Constant(
+                            value="message type doesn't match any options in the union"
+                        )
+                    ],
+                    keywords=[],
+                ),
+                cause=None,
+            )
+        ]
 
         return statements
 
@@ -444,7 +450,6 @@ class WriterCompiler(Compiler):
                 # Named type reference. Look it up.
                 referenced_schema = self.named_types[schema]
                 return self._gen_union_type_test(referenced_schema, msg)
-
 
         # Union-of-union is explicitly forbidden by the Avro spec, so all
         # thats left is dict types.

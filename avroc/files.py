@@ -62,7 +62,11 @@ def read_header(fo: IO[bytes]) -> AvroFileHeader:
 
 class AvroFileWriter:
     def __init__(
-        self, fo: IO[bytes], schema: SchemaType, codec: Codec=NullCodec(), block_size: int = 1000
+        self,
+        fo: IO[bytes],
+        schema: SchemaType,
+        codec: Codec = NullCodec(),
+        block_size: int = 1000,
     ):
         self.fo = fo
         self.codec = codec
@@ -84,7 +88,9 @@ class AvroFileWriter:
         header = read_header(self.fo)
         existing_schema = json.loads(header["meta"]["avro.schema"].decode())
         if existing_schema != self.schema:
-            raise ValueError(f"provided schema {self.schema} does not match file writer schema {existing_schema}")
+            raise ValueError(
+                f"provided schema {self.schema} does not match file writer schema {existing_schema}"
+            )
 
         codec_id = header["meta"].get("avro.codec", b"null")
         if codec_id not in codec_by_id:
@@ -93,7 +99,6 @@ class AvroFileWriter:
         self.codec
         self.sync_marker = header["sync"]
         self.fo.seek(0, 2)
-
 
     def _write_header(self) -> NoReturn:
         meta = {
