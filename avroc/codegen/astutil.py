@@ -171,7 +171,9 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
             # Default for a fixed is a string
             assert isinstance(v, str)
             return Constant(value=v.encode("utf8"))
-    raise NotImplementedError(f"unable to generate literal from default; missing implementation for {schema}")
+    raise NotImplementedError(
+        f"unable to generate literal from default; missing implementation for {schema}"
+    )
 
 
 def floor_div(dividend: expr, divisor: int) -> expr:
