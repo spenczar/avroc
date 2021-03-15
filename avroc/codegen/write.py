@@ -222,7 +222,7 @@ class WriterCompiler(Compiler):
                 # We need to know the schema of the field in order to know how
                 # to construct a literal value for the field default.
                 field_schema = field["type"]
-                if field_schema in self.named_types:
+                if isinstance(field_schema, str) and field_schema in self.named_types:
                     field_schema = self.named_types[field_schema]
 
                 field_value = Call(

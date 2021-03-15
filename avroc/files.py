@@ -118,8 +118,7 @@ class AvroFileWriter:
         self.fo.write(encoding.encode_long(self.current_block_size))
 
         # Write the encoded record data.
-        self.buf.seek(0)
-        raw_bytes = self.buf.read()
+        raw_bytes = self.buf.getvalue()
         encoded_bytes = self.codec.encode(raw_bytes)
         self.fo.write(encoding.encode_bytes(encoded_bytes))
 
@@ -128,6 +127,9 @@ class AvroFileWriter:
 
         # Reset counter.
         self.current_block_size = 0
+
+        # Reset buffer.
+        self.buf = io.BytesIO()
 
     def close(self):
         self.flush()

@@ -129,6 +129,8 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
     # Default for a complex type is... complex
     else:
         assert isinstance(schema, dict)
+        if schema["type"] in PRIMITIVES:
+            return literal_from_default(v, schema["type"])
         if schema["type"] == "enum":
             # Default for an enum is a string for one of the symbols
             assert isinstance(v, str)
@@ -162,14 +164,14 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
             assert isinstance(v, dict)
             map_literal = DictLiteral(keys=[], values=[])
             for key, val in v.items():
-                value.keys.append(Constant(value=key))
-                value.values.append(literal_from_default(val, schema["values"]))
+                map_literal.keys.append(Constant(value=key))
+                map_literal.values.append(literal_from_default(val, schema["values"]))
             return map_literal
         if schema["type"] == "fixed":
             # Default for a fixed is a string
             assert isinstance(v, str)
             return Constant(value=v.encode("utf8"))
-    raise NotImplementedError(f"missing implementation for {schema}")
+    raise NotImplementedError(f"unable to generate literal from default; missing implementation for {schema}")
 
 
 def floor_div(dividend: expr, divisor: int) -> expr:

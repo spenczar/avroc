@@ -31,7 +31,6 @@ class testcase:
         assert have == self.output_msg, "reader behavior mismatch"
         assert type(have) == type(self.output_msg), "reader type mismatch"
 
-
 class failcase:
     def __init__(self, label, writer_schema, reader_schema, input_msg, error_matcher):
         self.label = label
@@ -361,6 +360,90 @@ record_testcases = [
             "bytes_field": b"\xc3\xbf",
             "string_field": "abc",
             "null_field": None,
+        },
+    ),
+    testcase(
+        label="record-typed default",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "record_default",
+                 "type": {"type": "record", "fields": [{"type": "str", "name": "str_f"}], "name": "RecordDefault"},
+                 "default": {"str_f": "x"}},
+            ],
+        },
+        input_msg={},
+        output_msg={
+            "record_default": {"str_f": "x"},
+        },
+    ),
+    testcase(
+        label="array-typed default",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "array_default",
+                 "type": {"type": "array", "items": "int"},
+                 "default": [5, 6, 7, 8]},
+            ],
+        },
+        input_msg={},
+        output_msg={
+            "array_default": [5, 6, 7, 8],
+        },
+    ),
+    testcase(
+        label="enum-typed default",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "enum_default",
+                 "type": {"type": "enum", "name": "color", "symbols": ["RED", "YELLOW", "BLUE"]},
+                 "default": "YELLOW"},
+            ],
+        },
+        input_msg={},
+        output_msg={
+            "enum_default": "YELLOW",
+        },
+    ),
+    testcase(
+        label="map-typed default",
+        writer_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [],
+        },
+        reader_schema={
+            "type": "record",
+            "name": "Record",
+            "fields": [
+                {"name": "map_default",
+                 "type": {"type": "map", "values": "int"},
+                 "default": {"k": 1}},
+            ],
+        },
+        input_msg={},
+        output_msg={
+            "map_default": {"k": 1},
         },
     ),
     testcase(

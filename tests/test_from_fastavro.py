@@ -1,3 +1,28 @@
+"""
+A lot of this code is adapted from the tests in the fastavro project,
+https://github.com/fastavro/fastavro. They are copied and modified here under the MIT license for fastavro:
+
+Copyright (c) 2011 Miki Tebeka
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
 import pytest
 import io
 import avroc.files
@@ -707,3 +732,86 @@ def test_appending_records(tmpdir):
         new_records = list(reader)
 
     assert new_records == [{"field": "foo"}, {"field": "bar"}]
+
+
+def test_order_of_values_in_map():
+    """https://github.com/fastavro/fastavro/issues/303"""
+    schema = {
+        "doc": "A weather reading.",
+        "name": "Weather",
+        "namespace": "test",
+        "type": "record",
+        "fields": [
+            {
+                "name": "metadata",
+                "type": {
+                    "type": "map",
+                    "values": [
+                        {"type": "array", "items": "string"},
+                        {"type": "map", "values": ["string"]},
+                    ],
+                },
+            }
+        ],
+    }
+    records = [{"metadata": {"map1": {"map2": "str"}}}]
+
+    assert records == roundtrip(schema, records)
+
+
+def test_writer_schema_always_read():
+    """https://github.com/fastavro/fastavro/issues/312"""
+    schema = {
+        "type": "record",
+        "name": "Outer",
+        "fields": [
+            {
+                "name": "item",
+                "type": [
+                    {
+                        "type": "record",
+                        "name": "Inner1",
+                        "fields": [
+                            {
+                                "name": "id",
+                                "type": {
+                                    "type": "record",
+                                    "name": "UUID",
+                                    "fields": [{"name": "id", "type": "string"}],
+                                },
+                                "default": {"id": ""},
+                            },
+                            {"name": "description", "type": "string"},
+                            {"name": "size", "type": "int"},
+                        ],
+                    },
+                    {
+                        "type": "record",
+                        "name": "Inner2",
+                        "fields": [
+                            {"name": "id", "type": "UUID", "default": {"id": ""}},
+                            {"name": "name", "type": "string"},
+                            {"name": "age", "type": "long"},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+    records = [
+        {"item": {"description": "test", "size": 1}},
+        {"item": {"id": {"id": "#1"}, "name": "foobar", "age": 12}},
+    ]
+
+    file = io.BytesIO()
+
+    w = avroc.files.AvroFileWriter(file, schema)
+    for r in records:
+        w.write(r)
+    w.flush()
+    file.seek(0)
+
+    # This should not raise a KeyError
+    r = avroc.files.AvroFileReader(file)
+    list(r)
