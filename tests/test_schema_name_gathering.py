@@ -1,16 +1,15 @@
 from typing import Dict
 
-from avroc.schema import gather_named_types
-from avroc.util import SchemaType
+from avroc.schema import gather_named_types, load_schema
 import pytest
 import copy
 
 
 class testcase:
-    def __init__(self, label: str, schema: SchemaType, expected: Dict[str, SchemaType]):
+    def __init__(self, label, schema, expected):
         self.label = label
-        self.schema = schema
-        self.expected = expected
+        self.schema = load_schema(schema)
+        self.expected = {k: load_schema(v) for k, v in expected.items()}
 
     def run(self):
         assert gather_named_types(self.schema) == self.expected
