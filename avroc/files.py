@@ -6,7 +6,7 @@ import io
 from avroc.codegen.read import ReaderCompiler
 from avroc.codegen.write import WriterCompiler
 from avroc.codegen.resolution import ResolvedReaderCompiler
-from avroc.util import SchemaType
+from avroc.schema import Schema, load_schema, dump_schema
 from avroc.codec import Codec, NullCodec, codec_by_id
 from avroc.runtime import encoding
 
@@ -16,7 +16,7 @@ except ImportError:
     TypedDict = Dict
 
 
-AvroFileHeaderSchema = {
+AvroFileHeaderSchema = load_schema({
     "type": "record",
     "name": "org.apache.avro.file.Header",
     "fields": [
@@ -24,7 +24,7 @@ AvroFileHeaderSchema = {
         {"name": "meta", "type": {"type": "map", "values": "bytes"}},
         {"name": "sync", "type": {"type": "fixed", "name": "Sync", "size": 16}},
     ],
-}
+})
 
 
 class AvroFileHeader(TypedDict):
@@ -64,7 +64,7 @@ class AvroFileWriter:
     def __init__(
         self,
         fo: IO[bytes],
-        schema: SchemaType,
+        schema: Schema,
         codec: Codec = NullCodec(),
         block_size: int = 1000,
     ):
@@ -86,7 +86,7 @@ class AvroFileWriter:
     def _read_header(self) -> NoReturn:
         self.fo.seek(0)
         header = read_header(self.fo)
-        existing_schema = json.loads(header["meta"]["avro.schema"].decode())
+        existing_schema = load_schema(json.loads(header["meta"]["avro.schema"].decode()))
         if existing_schema != self.schema:
             raise ValueError(
                 f"provided schema {self.schema} does not match file writer schema {existing_schema}"
@@ -102,7 +102,7 @@ class AvroFileWriter:
 
     def _write_header(self) -> NoReturn:
         meta = {
-            "avro.schema": json.dumps(self.schema).encode(),
+            "avro.schema": dump_schema(self.schema).encode(),
             "avro.codec": self.codec.id(),
         }
         self.sync_marker = write_header(self.fo, meta)
@@ -137,7 +137,7 @@ class AvroFileWriter:
 
 
 class AvroFileReader:
-    def __init__(self, fo: IO[bytes], schema: Optional[SchemaType] = None):
+    def __init__(self, fo: IO[bytes], schema: Optional[Schema] = None):
         self.fo = fo
         self._read_header()
         if schema is None:
@@ -173,7 +173,7 @@ class AvroFileReader:
                 "incorrect magic byte prefix, is this an Avro object container file?"
             )
         self.sync_marker = header["sync"]
-        self.writer_schema = json.loads(header["meta"]["avro.schema"].decode())
+        self.writer_schema = load_schema(json.loads(header["meta"]["avro.schema"].decode()))
 
         codec_id = header["meta"].get("avro.codec", b"null")
         if codec_id not in codec_by_id:

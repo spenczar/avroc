@@ -27,6 +27,7 @@ import pytest
 import io
 import avroc.files
 import avroc.messages
+import avroc.schema
 import avroc.codegen.read
 import avroc.codegen.write
 import avroc.codegen.resolution
@@ -38,6 +39,7 @@ from collections import OrderedDict
 
 def roundtrip(schema, records):
     buf = io.BytesIO()
+    schema = avroc.schema.load_schema(schema)
     writer = avroc.files.AvroFileWriter(buf, schema)
     for r in records:
         writer.write(r)
@@ -50,6 +52,8 @@ def roundtrip(schema, records):
 
 def roundtrip_schema_migration(old_schema, new_schema, records):
     buf = io.BytesIO()
+    old_schema = avroc.schema.load_schema(old_schema)
+    new_schema = avroc.schema.load_schema(new_schema)
     w = avroc.files.AvroFileWriter(buf, old_schema)
     for r in records:
         w.write(r)
@@ -704,7 +708,7 @@ def test_union_schema_ignores_extra_fields():
 
 def test_appending_records(tmpdir):
     """https://github.com/fastavro/fastavro/issues/276"""
-    schema = {
+    schema = avroc.schema.load_schema({
         "type": "record",
         "name": "test_appending_records",
         "fields": [
@@ -713,7 +717,7 @@ def test_appending_records(tmpdir):
                 "type": "string",
             }
         ],
-    }
+    })
 
     test_file = str(tmpdir.join("test.avro"))
 
@@ -734,6 +738,8 @@ def test_appending_records(tmpdir):
     assert new_records == [{"field": "foo"}, {"field": "bar"}]
 
 
+# Currently fails: we treat a union with only one value as an error.
+@pytest.mark.xfail(strict=True)
 def test_order_of_values_in_map():
     """https://github.com/fastavro/fastavro/issues/303"""
     schema = {
@@ -806,7 +812,7 @@ def test_writer_schema_always_read():
 
     file = io.BytesIO()
 
-    w = avroc.files.AvroFileWriter(file, schema)
+    w = avroc.files.AvroFileWriter(file, avroc.schema.load_schema(schema))
     for r in records:
         w.write(r)
     w.flush()

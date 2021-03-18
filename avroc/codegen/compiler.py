@@ -5,8 +5,8 @@ import platform
 import sys
 
 from avroc.codegen.graph import find_recursive_types
-from avroc.util import SchemaType, rand_str
-from avroc.schema import expand_names, gather_named_types
+from avroc.util import rand_str
+from avroc.schema import Schema, RecordSchema, NamedSchema, gather_named_types
 
 
 if sys.version_info >= (3, 9):
@@ -22,18 +22,16 @@ else:
 
 
 class Compiler:
-    schema: SchemaType
+    schema: Schema
     variable_name_counts: DefaultDict[str, int]
 
     # List of schemas which are defined recursively. This is needed to generate
     # separate functions for each of these types so that they can call
     # themselves recursively when reading.
-    recursive_types: List[Dict]
+    recursive_types: List[RecordSchema]
 
     # Types by absolute name
-    named_types: Dict[str, SchemaType]
-
-    types_referenced_by_name: Set[str]
+    named_types: Dict[str, NamedSchema]
 
     pure_python: bool
 
@@ -41,10 +39,9 @@ class Compiler:
 
     debug: bool = True
 
-    def __init__(self, schema: SchemaType, entrypoint_name: str):
-        self.schema = expand_names(schema)
+    def __init__(self, schema: Schema, entrypoint_name: str):
+        self.schema = schema
         self.named_types = gather_named_types(self.schema)
-        self.types_referenced_by_name = set()
 
         self.entrypoint_name = entrypoint_name
         self.recursive_types = find_recursive_types(self.schema)

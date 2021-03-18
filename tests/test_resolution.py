@@ -1,6 +1,7 @@
 import pytest
 import io
 import avroc.codegen.resolution
+import avroc.schema
 import fastavro.read
 
 import uuid
@@ -24,7 +25,8 @@ class testcase:
         message_encoded.seek(0)
 
         c = avroc.codegen.resolution.ResolvedReaderCompiler(
-            self.writer_schema, self.reader_schema
+            avroc.schema.load_schema(self.writer_schema),
+            avroc.schema.load_schema(self.reader_schema),
         )
         reader = c.compile()
         have = reader(message_encoded)

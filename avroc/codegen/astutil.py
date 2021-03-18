@@ -2,7 +2,7 @@
 astutil contains utility functions for generating an AST.
 """
 import json
-from avroc.avro_common import SchemaType, PRIMITIVES
+from avroc.schema import *
 from typing import Union, List, Optional, Dict, Any
 from ast import (
     Name,
@@ -57,7 +57,7 @@ def call_encoder(primitive_type: str, msg: Union[expr, int]) -> expr:
     return call
 
 
-def func_call(name: str, args: List[expr]) -> Call:
+def func_call(name: str, args: List[Union[expr, int]]) -> Call:
     for idx, a in enumerate(args):
         if not isinstance(a, expr):
             args[idx] = Constant(value=a)
@@ -92,7 +92,7 @@ def method_call(
     return call
 
 
-def literal_from_default(v: Any, schema: SchemaType) -> expr:
+def literal_from_default(v: Any, schema: Schema) -> expr:
     """
     Schemas can contain default values. When generating code, we need to have a
     way to inject a literal which constructs that default. This function does
@@ -100,77 +100,77 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
     an Avro schema's "default" field) and the schema describing the default
     value's type into a literal expression.
     """
+
+    if isinstance(schema, NamedSchemaReference):
+        schema = schema.referenced_schema
     # Default for a primitive is just a literal constant
-    if isinstance(schema, str):
-        assert schema in PRIMITIVES
-        if schema == "null":
+    if isinstance(schema, PrimitiveSchema):
+        if schema.type == "null":
             assert v is None
             return Constant(value=None)
-        elif schema == "boolean":
+        elif schema.type == "boolean":
             assert v is True or v is False
             return Constant(value=v)
-        elif schema == "int" or schema == "long":
+        elif schema.type == "int" or schema.type == "long":
             assert isinstance(v, int) and not isinstance(v, bool)
             return Constant(value=int(v))
-        elif schema == "float" or schema == "double":
+        elif schema.type == "float" or schema.type == "double":
             assert isinstance(v, float)
             return Constant(value=v)
-        elif schema == "bytes":
+        elif schema.type == "bytes":
             assert isinstance(v, str)
             return Constant(value=v.encode("utf8"))
-        elif schema == "string":
+        elif schema.type == "string":
             assert isinstance(v, str)
             return Constant(value=v)
         else:
             raise ValueError(f"unexpected schema type {schema}")
+
     # Default for a union has the schema of the first type in the union
-    elif isinstance(schema, list):
-        return literal_from_default(v, schema[0])
-    # Default for a complex type is... complex
-    else:
-        assert isinstance(schema, dict)
-        if schema["type"] in PRIMITIVES:
-            return literal_from_default(v, schema["type"])
-        if schema["type"] == "enum":
-            # Default for an enum is a string for one of the symbols
-            assert isinstance(v, str)
-            assert v in schema["symbols"]
-            return Constant(value=v)
-        if schema["type"] in {"record", "error"}:
-            # Default for a record is a dictionary; keys are field names and
-            # values are according to the schema of the field.
-            assert isinstance(v, dict)
-            record_literal = DictLiteral(keys=[], values=[])
-            for field in schema["fields"]:
-                default_field_value = v[field["name"]]
-                record_literal.keys.append(Constant(value=field["name"]))
-                record_literal.values.append(
-                    literal_from_default(default_field_value, field["type"])
-                )
-            return record_literal
-        if schema["type"] == "array":
-            # Default for an array is a list; values are according to the items
-            # schema for the array.
-            assert isinstance(v, list)
-            array_literal = ListLiteral(elts=[], ctx=Load())
-            for array_item in v:
-                array_literal.elts.append(
-                    literal_from_default(array_item, schema["items"])
-                )
-            return array_literal
-        if schema["type"] == "map":
-            # Default for a map is a dictionary; values are according to the values
-            # schema for the map.
-            assert isinstance(v, dict)
-            map_literal = DictLiteral(keys=[], values=[])
-            for key, val in v.items():
-                map_literal.keys.append(Constant(value=key))
-                map_literal.values.append(literal_from_default(val, schema["values"]))
-            return map_literal
-        if schema["type"] == "fixed":
-            # Default for a fixed is a string
-            assert isinstance(v, str)
-            return Constant(value=v.encode("utf8"))
+    elif isinstance(schema, UnionSchema):
+        return literal_from_default(v, schema.options[0])
+
+    elif isinstance(schema, EnumSchema):
+        # Default for an enum is a string for one of the symbols
+        assert isinstance(v, str)
+        assert v in schema.symbols
+        return Constant(value=v)
+
+    elif isinstance(schema, RecordSchema):
+        # Default for a record is a dictionary; keys are field names and
+        # values are according to the schema of the field.
+        assert isinstance(v, dict)
+        record_literal = DictLiteral(keys=[], values=[])
+        for field in schema.fields:
+            default_field_value = v[field.name]
+            record_literal.keys.append(Constant(value=field.name))
+            record_literal.values.append(
+                literal_from_default(default_field_value, field.type)
+            )
+        return record_literal
+    elif isinstance(schema, ArraySchema):
+        # Default for an array is a list; values are according to the items
+        # schema for the array.
+        assert isinstance(v, list)
+        array_literal = ListLiteral(elts=[], ctx=Load())
+        for array_item in v:
+            array_literal.elts.append(
+                literal_from_default(array_item, schema.items)
+            )
+        return array_literal
+    elif isinstance(schema, MapSchema):
+        # Default for a map is a dictionary; values are according to the values
+        # schema for the map.
+        assert isinstance(v, dict)
+        map_literal = DictLiteral(keys=[], values=[])
+        for key, val in v.items():
+            map_literal.keys.append(Constant(value=key))
+            map_literal.values.append(literal_from_default(val, schema.values))
+        return map_literal
+    elif isinstance(schema, FixedSchema):
+        # Default for a fixed is a string
+        assert isinstance(v, str)
+        return Constant(value=v.encode("utf8"))
     raise NotImplementedError(
         f"unable to generate literal from default; missing implementation for {schema}"
     )

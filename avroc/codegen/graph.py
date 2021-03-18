@@ -20,11 +20,22 @@ from __future__ import annotations
 from typing import Dict, Set, Optional, Iterable, List, Deque, DefaultDict
 
 from avroc.avro_common import PRIMITIVES
-from avroc.util import SchemaType
+from avroc.schema import (
+    Schema,
+    NamedSchema,
+    UnionSchema,
+    PrimitiveSchema,
+    RecordSchema,
+    ArraySchema,
+    MapSchema,
+    EnumSchema,
+    FixedSchema,
+    NamedSchemaReference,
+)
 import collections
 
 
-def find_recursive_types(schema: Dict) -> List[Dict]:
+def find_recursive_types(schema: Schema) -> List[RecordSchema]:
     """
     Find the schemas of all types in the schema which are defined recursively.
 
@@ -32,18 +43,16 @@ def find_recursive_types(schema: Dict) -> List[Dict]:
     a reference to itself, either in its fields or somewhere down the tree of
     its fields' fields.
 
-    The input schema must have already been expanded with expand_schema.
-
     The list is returned in depth-first ordering.
     """
-    result = []
+    result: List[RecordSchema] = []
 
     names: Dict[str, "NamegraphNode"] = {}
     graph_roots = _schema_to_graph(schema, names)
     for root in graph_roots:
         # There could be multiple graph roots if the schema is a top-level
         # union.
-        result.extend([node.schema for node in _find_cycle_roots(root)])
+        result.extend([node.schema for node in _find_cycle_roots(root)])  #type: ignore
     return result
 
 
@@ -74,14 +83,14 @@ def _find_cycle_roots(graph: "NamegraphNode") -> List["NamegraphNode"]:
 
 class NamegraphNode:
     name: str  # Fully-qualified name.
-    schema: Dict
+    schema: NamedSchema
     references: Set["NamegraphNode"]
 
     def __init__(
-        self, schema: Dict, references: Optional[Iterable["NamegraphNode"]] = None
+        self, schema: NamedSchema, references: Optional[Iterable["NamegraphNode"]] = None
     ):
         self.schema = schema
-        self.name = schema["name"]
+        self.name = schema.name
         if references is not None:
             self.references = set(references)
         else:
@@ -110,68 +119,42 @@ class NamegraphNode:
         return f"NamegraphNode(name={name}, references={refs})"
 
 
-def _schema_to_graph(schema: SchemaType, names: Dict) -> List[NamegraphNode]:
+def _schema_to_graph(schema: Schema, names: Dict) -> List[NamegraphNode]:
     # Convert a schema definition into a graph representation which only
     # includes named-type components.
 
-    if isinstance(schema, str):
-        # Strings are names of types.
-        if schema in PRIMITIVES:
-            return []
-        # If the name is pointing to a user-defined type, it **must** be defined
-        # at this point, according to the Avro spec:
-        #
-        #   A name must be defined before it is used ("before" in the
-        #   depth-first, left-to-right traversal of the JSON parse tree, where
-        #   the types attribute of a protocol is always deemed to come "before"
-        #   the messages attribute.
-        #
-        return [names[schema]]
-
-    elif isinstance(schema, list):
-        # Lists are unions of types.
-        result: List[NamegraphNode] = []
-        for s in schema:
+    if isinstance(schema, PrimitiveSchema):
+        return []
+    if isinstance(schema, UnionSchema):
+        result = []
+        for s in schema.options:
             result.extend(_schema_to_graph(s, names))
         return result
+    elif isinstance(schema, ArraySchema):
+        return _schema_to_graph(schema.items, names)
+    elif isinstance(schema, MapSchema):
+        return _schema_to_graph(schema.values, names)
+    elif isinstance(schema, RecordSchema):
+        node = NamegraphNode(schema)
 
-    elif isinstance(schema, dict):
-        # Dicts are complex types.
-        schema_type = schema["type"]
+        names[schema.fullname()] = node
+        for alias in schema.fullaliases():
+            names[alias] = node
 
-        if schema_type == "array":
-            # Arrays can have named references in the type of their items.
-            return _schema_to_graph(schema["items"], names)
+        for field in schema.fields:
+            for subnode in _schema_to_graph(field.type, names):
+                node.add_reference(subnode)
+        return [node]
+    elif isinstance(schema, (EnumSchema, FixedSchema)):
+        # Enums and fixeds cannot include named references. But they can be "terminal nodes".
+        node = NamegraphNode(schema)
 
-        elif schema_type == "map":
-            # Maps can have named references in the type of their values.
-            return _schema_to_graph(schema["values"], names)
-
-        elif schema_type == "record" or schema_type == "error":
-            # Records can have named references in the type of their fields.
-            node = NamegraphNode(schema)
-
-            names[schema["name"]] = node
-            for alias in schema.get("aliases", []):
-                names[alias] = node
-
-            for field in schema["fields"]:
-                field_schema = field["type"]
-                for subnode in _schema_to_graph(field_schema, names):
-                    node.add_reference(subnode)
-            return [node]
-
-        elif (
-            schema_type == "enum" or schema_type == "fixed" or schema_type in PRIMITIVES
-        ):
-            # Enums, fixeds, and primitives cannot include named references. But they can be "terminal nodes".
-            if "name" in schema:
-                names[schema["name"]] = NamegraphNode(schema)
-                return []
-            return []
-
-        else:
-            # This is a verbosely-defined type name.
-            return [names[schema_type]]
+        names[schema.fullname()] = node
+        for alias in schema.fullaliases():
+            names[alias] = node
+        return []
+    elif isinstance(schema, NamedSchemaReference):
+        node = names[schema.referenced_name]
+        return [node]
     else:
-        raise TypeError("unexpected type")
+        raise TypeError(f"unexpected type: {type(schema)}")

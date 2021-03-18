@@ -9,7 +9,7 @@ class ok:
         self.schema = schema
 
     def run(self):
-        avroc.schema.validate(self.schema)
+        avroc.schema.load_schema(self.schema)
 
 
 class should_warn:
@@ -22,11 +22,17 @@ class should_warn:
         with pytest.warns(
             avroc.schema.SchemaValidationWarning, match=self.warning_matcher
         ):
-            avroc.schema.validate(self.schema)
+            avroc.schema.load_schema(self.schema)
 
 
 class should_error:
-    def __init__(self, label, schema, error_matcher=None, error_class=avroc.schema.SchemaValidationError):
+    def __init__(
+        self,
+        label,
+        schema,
+        error_matcher=None,
+        error_class=avroc.schema.SchemaValidationError,
+    ):
         self.label = label
         self.schema = schema
         self.error_matcher = error_matcher
@@ -34,12 +40,10 @@ class should_error:
 
     def run(self):
         if self.error_matcher is not None:
-            with pytest.raises(
-                self.error_class, match=self.error_matcher
-            ):
-                avroc.schema.validate(self.schema)
+            with pytest.raises(self.error_class, match=self.error_matcher):
+                avroc.schema.load_schema(self.schema)
         with pytest.raises(self.error_class):
-            avroc.schema.validate(self.schema)
+            avroc.schema.load_schema(self.schema)
 
 
 testcases = [
@@ -77,6 +81,73 @@ testcases = [
             ],
         },
     ),
+    ok(
+        "logical types",
+        {
+            "type": "record",
+            "name": "abc",
+            "fields": [
+                {
+                    "name": "l1",
+                    "type": {
+                        "type": "bytes",
+                        "logicalType": "decimal",
+                        "precision": 4,
+                        "scale": 2,
+                    },
+                },
+                {
+                    "name": "l2",
+                    "type": {
+                        "type": "fixed",
+                        "logicalType": "decimal",
+                        "precision": 4,
+                        "scale": 2,
+                        "size": 4,
+                        "name": "x",
+                    },
+                },
+                {
+                    "name": "uuid",
+                    "type": {"type": "string", "logicalType": "uuid"},
+                },
+                {
+                    "name": "date",
+                    "type": {"type": "int", "logicalType": "date"},
+                    "default": 0,
+                },
+                {
+                    "name": "time-millis",
+                    "type": {"type": "int", "logicalType": "time-millis"},
+                    "default": 1,
+                },
+                {
+                    "name": "time-micros",
+                    "type": {"type": "long", "logicalType": "time-micros"},
+                    "default": 2,
+                },
+                {
+                    "name": "timestamp-millis",
+                    "type": {"type": "long", "logicalType": "timestamp-millis"},
+                    "default": 4,
+                },
+                {
+                    "name": "timestamp-micros",
+                    "type": {"type": "long", "logicalType": "timestamp-micros"},
+                    "default": 5,
+                },
+                {
+                    "name": "duration",
+                    "type": {
+                        "type": "fixed",
+                        "name": "d",
+                        "size": 12,
+                        "logicalType": "duration",
+                    },
+                },
+            ],
+        },
+    ),
     # Basic failures
     should_error("undefined type", "Int", "unknown name Int"),
     should_error(
@@ -93,9 +164,15 @@ testcases = [
     should_error("dict with undefined type", {"type": "Named"}),
     should_error("non-string type", {"type": False}, "unknown schema type False"),
     # Stuff around name validation
-    should_error("record without name", {"type": "record", "fields": []}, error_class=KeyError),
-    should_error("enum without name", {"type": "enum", "fields": []}, error_class=KeyError),
-    should_error("fixed without name", {"type": "fixed", "fields": []}, error_class=KeyError),
+    should_error(
+        "record without name", {"type": "record", "fields": []}, error_class=KeyError
+    ),
+    should_error(
+        "enum without name", {"type": "enum", "fields": []}, error_class=KeyError
+    ),
+    should_error(
+        "fixed without name", {"type": "fixed", "fields": []}, error_class=KeyError
+    ),
     should_error(
         "name reused",
         [
@@ -106,10 +183,14 @@ testcases = [
     ),
     should_error(
         "field name reused",
-        {"name": "Record", "type": "record", "fields": [
-            {"name": "A", "type": "int"},
-            {"name": "A", "type": "int"},
-        ]},
+        {
+            "name": "Record",
+            "type": "record",
+            "fields": [
+                {"name": "A", "type": "int"},
+                {"name": "A", "type": "int"},
+            ],
+        },
         "field name A is used twice",
     ),
     # Record types
@@ -140,13 +221,31 @@ testcases = [
     ),
     should_error(
         "default is wrong type",
-        {"name": "A", "type": "record", "fields": [{"type": "int", "name": "intfield", "default": "aaa"}]},
-         "field intfield has an invalid default",
+        {
+            "name": "A",
+            "type": "record",
+            "fields": [{"type": "int", "name": "intfield", "default": "aaa"}],
+        },
+        "field intfield has an invalid default",
     ),
     should_error(
         "fixed default is wrong size",
-        {"name": "A", "type": "record", "fields": [{"type": {"type": "fixed", "name": "fixedfield", "default": "\u00ff", "size": 1}, "name": "fixedfield"}]},
-         "default value is invalid"
+        {
+            "name": "A",
+            "type": "record",
+            "fields": [
+                {
+                    "type": {
+                        "type": "fixed",
+                        "name": "fixedfield",
+                        "default": "\u00ff\ueeff",
+                        "size": 1,
+                    },
+                    "name": "fixedfield",
+                }
+            ],
+        },
+        "default value is invalid",
     ),
 ]
 

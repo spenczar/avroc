@@ -1,27 +1,28 @@
 import pytest
 import io
 import avroc.messages
+import avroc.schema
 
 
 class default_testcase:
     def __init__(self, label, field_schema, field_default, field_explicit):
         self.label = label
 
-        self.schema_with_default = {
+        self.schema_with_default = avroc.schema.load_schema({
             "type": "record",
             "name": "Record",
             "fields": [
                 {"name": "F", "type": field_schema, "default": field_default},
             ],
-        }
-        self.schema_without_default = {
+        })
+        self.schema_without_default = avroc.schema.load_schema({
             "type": "record",
             "name": "Record",
             "fields": [
                 {"name": "F", "type": field_schema},
             ],
-        }
-        self.schema_without_field = {"type": "record", "name": "Record", "fields": []}
+        })
+        self.schema_without_field = avroc.schema.load_schema({"type": "record", "name": "Record", "fields": []})
         self.message_with_default = {"F": field_default}
         self.message_with_explicit_value = {"F": field_explicit}
         self.message_without_default = {}

@@ -4,7 +4,8 @@ import datetime
 
 from fastavro.read import block_reader
 from avroc.avro_common import PRIMITIVES
-from avroc.util import SchemaType, clean_name, LogicalTypeError
+from avroc.util import clean_name, LogicalTypeError
+from avroc.schema import *
 from avroc.codegen.compiler import Compiler
 from avroc.codegen.astutil import (
     call_decoder,
@@ -60,24 +61,8 @@ from ast import (
 )
 
 
-def read_file(fo: IO[bytes]) -> Iterator[Any]:
-    """
-    Open an Avro Container Format file. Read its header to find the schema,
-    compile the schema, and use it to deserialize records, yielding them out.
-    """
-    blocks = block_reader(fo, reader_schema=None, return_record_name=False)
-    if blocks.writer_schema is None:
-        raise ValueError("missing write schema")
-    compiler = ReaderCompiler(blocks.writer_schema)
-    reader = compiler.compile()
-
-    for block in blocks:
-        for _ in range(block.num_records):
-            yield reader(block.bytes_)
-
-
 class ReaderCompiler(Compiler):
-    def __init__(self, schema: SchemaType):
+    def __init__(self, schema: Schema):
         super(ReaderCompiler, self).__init__(schema, "decoder")
 
     def generate_module(self) -> Module:
@@ -109,7 +94,7 @@ class ReaderCompiler(Compiler):
         for recursive_type in self.recursive_types:
             body.append(
                 self.generate_decoder_func(
-                    name=self._decoder_name(recursive_type["name"]),
+                    name=self._decoder_name(recursive_type),
                     schema=recursive_type,
                 )
             )
@@ -122,10 +107,10 @@ class ReaderCompiler(Compiler):
         return module
 
     @staticmethod
-    def _decoder_name(name: str) -> str:
-        return "_decode_" + clean_name(name)
+    def _decoder_name(schema: NamedSchema) -> str:
+        return "_decode_" + clean_name(schema.fullname())
 
-    def generate_decoder_func(self, schema: SchemaType, name: str) -> FunctionDef:
+    def generate_decoder_func(self, schema: Schema, name: str) -> FunctionDef:
         """
         Returns an AST describing a function which can decode an Avro message from a
         IO[bytes] source. The message is parsed according to the given schema.
@@ -148,76 +133,60 @@ class ReaderCompiler(Compiler):
         func.body.append(Return(value=Name(id=result_var.id, ctx=Load())))
         return func
 
-    def _gen_decode(self, schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_decode(self, schema: Schema, dest: AST) -> List[stmt]:
         """
         Returns a sequence of statements which will read data and write the
         deserialized value into dest.
         """
-        if isinstance(schema, str):
-            if schema in PRIMITIVES:
-                return self._gen_primitive_decode(primitive_type=schema, dest=dest)
+        if isinstance(schema, LogicalSchema):
+            print("decoding logical")
+            return self._gen_logical_decode(schema, dest)
+        elif isinstance(schema, PrimitiveSchema):
+            return self._gen_primitive_decode(schema.type, dest)
+        elif isinstance(schema, NamedSchemaReference):
+            # Named type reference. Could be recursion?
+            if schema.referenced_schema in self.recursive_types:
+                # Yep, recursion. Just generate a function call - we'll have
+                # a separate function to handle this type.
+                return self._gen_recursive_decode_call(schema.referenced_schema, dest)
             else:
-                # Named type reference. Could be recursion?
-                if schema in set(t["name"] for t in self.recursive_types):
-                    # Yep, recursion. Just generate a function call - we'll have
-                    # a separate function to handle this type.
-                    return self._gen_recursive_decode_call(schema, dest)
-                else:
-                    # Not recursion. We can inline the decode, assuming the
-                    # schema was already present.
-                    referenced_schema = self.named_types.get(schema)
-                    if referenced_schema is None:
-                        raise ValueError(
-                            f"schema {schema} was used before it is defined"
-                        )
-                    return self._gen_decode(referenced_schema, dest)
-        if isinstance(schema, list):
+                # Not recursion. We can inline the decode.
+                return self._gen_decode(schema.referenced_schema, dest)
+        elif isinstance(schema, UnionSchema):
             return self._gen_union_decode(
-                options=schema,
+                options=schema.options,
                 dest=dest,
             )
-        if isinstance(schema, dict):
-            if "logicalType" in schema:
-                return self._gen_logical_decode(
-                    schema=schema,
-                    dest=dest,
-                )
-            schema_type = schema["type"]
-            if schema_type in PRIMITIVES:
-                return self._gen_primitive_decode(
-                    primitive_type=schema_type,
-                    dest=dest,
-                )
-            if schema_type == "record" or schema_type == "error":
-                return self._gen_record_decode(
-                    schema=schema,
-                    dest=dest,
-                )
-            if schema_type == "array":
-                return self._gen_array_decode(
-                    item_schema=schema["items"],
-                    dest=dest,
-                )
-            if schema_type == "map":
-                return self._gen_map_decode(
-                    value_schema=schema["values"],
-                    dest=dest,
-                )
-            if schema_type == "fixed":
-                return self._gen_fixed_decode(
-                    size=schema["size"],
-                    dest=dest,
-                )
-            if schema_type == "enum":
-                return self._gen_enum_decode(
-                    symbols=schema["symbols"],
-                    default=schema.get("default"),
-                    dest=dest,
-                )
+        elif isinstance(schema, RecordSchema):
+            return self._gen_record_decode(
+                schema=schema,
+                dest=dest,
+            )
+        elif isinstance(schema, ArraySchema):
+            return self._gen_array_decode(
+                item_schema=schema.items,
+                dest=dest,
+            )
+        elif isinstance(schema, MapSchema):
+            return self._gen_map_decode(
+                value_schema=schema.values,
+                dest=dest,
+            )
+        elif isinstance(schema, FixedSchema):
+            return self._gen_fixed_decode(
+                size=schema.size,
+                dest=dest,
+            )
+        elif isinstance(schema, EnumSchema):
+            return self._gen_enum_decode(
+                symbols=schema.symbols,
+                default=schema.default,
+                dest=dest,
+            )
 
         raise NotImplementedError(f"Schema type not implemented: {schema}")
 
-    def _gen_union_decode(self, options: List[SchemaType], dest: AST) -> List[stmt]:
+    def _gen_union_decode(self, options: List[Schema], dest: AST) -> List[stmt]:
 
         # Special case: fields like '["null", "long"] which represent an
         # optional field.
@@ -253,7 +222,7 @@ class ReaderCompiler(Compiler):
         return statements
 
     def _gen_optional_decode(
-        self, idx: int, schema: SchemaType, dest: AST
+        self, idx: int, schema: Schema, dest: AST
     ) -> List[stmt]:
         statements: List[stmt] = []
         is_populated = Compare(
@@ -262,13 +231,13 @@ class ReaderCompiler(Compiler):
             comparators=[Constant(idx)],
         )
 
-        if isinstance(schema, str) and schema in PRIMITIVES:
+        if isinstance(schema, PrimitiveSchema):
             # We can read the value in one line, so we can do something like:
             #  v1["optional_long"] = decode_long(src) if idx == 1 else None
 
             if_expr = IfExp(
                 test=is_populated,
-                body=call_decoder(schema),
+                body=call_decoder(schema.type),
                 orelse=Constant(None),
             )
             assignment = Assign(
@@ -286,11 +255,11 @@ class ReaderCompiler(Compiler):
             statements.append(if_stmt)
         return statements
 
-    def _gen_record_decode(self, schema: Dict, dest: AST) -> List[stmt]:
+    def _gen_record_decode(self, schema: RecordSchema, dest: AST) -> List[stmt]:
         statements: List[stmt] = []
 
         # Construct a new empty dictionary to hold the record contents.
-        value_name = self.new_variable(clean_name(schema["name"]))
+        value_name = self.new_variable(clean_name(schema.name))
         empty_dict = DictLiteral(keys=[], values=[])
         statements.append(
             Assign(
@@ -302,18 +271,18 @@ class ReaderCompiler(Compiler):
         value_reference = Name(id=value_name, ctx=Load())
 
         # Write statements to populate all the fields of the record.
-        for field in schema["fields"]:
+        for field in schema.fields:
             # Make an AST node that references an entry in the record dict,
             # using the field name as a key.
             field_dest = Subscript(
                 value=value_reference,
-                slice=Index(value=Constant(value=field["name"])),
+                slice=Index(value=Constant(value=field.name)),
                 ctx=Store(),
             )
 
             # Generate the statements required to read that field's type, and to
             # store it into field_dest.
-            read_statements = self._gen_decode(field["type"], field_dest)
+            read_statements = self._gen_decode(field.type, field_dest)
             statements.extend(read_statements)
 
         # Now that we have a fully constructed record, write it into the
@@ -327,7 +296,7 @@ class ReaderCompiler(Compiler):
         )
         return statements
 
-    def _gen_array_decode(self, item_schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_array_decode(self, item_schema: Schema, dest: AST) -> List[stmt]:
         """
         Returns a sequence of statements which will deserialize an array of given
         type from src into dest.
@@ -336,13 +305,10 @@ class ReaderCompiler(Compiler):
 
         # Create a new list to hold the values we'll read.
         name = "array_"
-        if isinstance(item_schema, dict):
-            if "name" in item_schema:
-                name += item_schema["name"]
-            elif "type" in item_schema and isinstance(item_schema["type"], str):
-                name += item_schema["type"]
-        elif isinstance(item_schema, str):
-            name += item_schema
+        if isinstance(item_schema, NamedSchema):
+            name += item_schema.name
+        else:
+            name += item_schema.type
         name = clean_name(name)
 
         list_varname = self.new_variable(name)
@@ -387,7 +353,7 @@ class ReaderCompiler(Compiler):
         statements.append(assign_result)
         return statements
 
-    def _gen_map_decode(self, value_schema: SchemaType, dest: AST) -> List[stmt]:
+    def _gen_map_decode(self, value_schema: Schema, dest: AST) -> List[stmt]:
         """
         Returns a sequence of statements which will deserialize a map with given
         value type from src into dest.
@@ -395,13 +361,10 @@ class ReaderCompiler(Compiler):
         statements: List[stmt] = []
 
         name = "map_"
-        if isinstance(value_schema, dict):
-            if "name" in value_schema:
-                name += value_schema["name"]
-            elif "type" in value_schema and isinstance(value_schema["type"], str):
-                name += value_schema["type"]
-        elif isinstance(value_schema, str):
-            name += value_schema
+        if isinstance(value_schema, NamedSchema):
+            name += value_schema.name
+        else:
+            name += value_schema.type
         name = clean_name(name)
 
         map_varname = self.new_variable(name)
@@ -534,49 +497,40 @@ class ReaderCompiler(Compiler):
         )
         return [statement]
 
-    def _gen_logical_decode(self, schema: Dict[str, Any], dest: AST) -> List[stmt]:
+    def _gen_logical_decode(self, schema: LogicalSchema, dest: AST) -> List[stmt]:
         src = Name(id="src", ctx=Load())
-        try:
-            lt = schema["logicalType"]
-            t = schema["type"]
-            call = None
-            if lt == "decimal" and t == "bytes":
-                prec = Constant(value=schema["precision"])
-                scale = Constant(value=schema.get("scale", 0))
-                call = func_call("decode_decimal_bytes", [src, prec, scale])
-            elif lt == "decimal" and t == "fixed":
-                size = Constant(value=schema["size"])
-                prec = Constant(value=schema["precision"])
-                scale = Constant(value=schema.get("scale", 0))
-                call = func_call("decode_decimal_fixed", [src, size, prec, scale])
-            elif lt == "uuid" and t == "string":
-                call = func_call("decode_uuid", [src])
-            elif lt == "date" and t == "int":
-                call = func_call("decode_date", [src])
-            elif lt == "time-millis" and t == "int":
-                call = func_call("decode_time_millis", [src])
-            elif lt == "time-micros" and t == "long":
-                call = func_call("decode_time_micros", [src])
-            elif lt == "timestamp-millis" and t == "long":
-                call = func_call("decode_timestamp_millis", [src])
-            elif lt == "timestamp-micros" and t == "long":
-                call = func_call("decode_timestamp_micros", [src])
-            else:
-                raise LogicalTypeError("unknown logical type")
 
-            return [Assign(targets=[dest], value=call)]
-        except LogicalTypeError:
-            # If a logical type is unknown, or invalid, then we should fall back
-            # and use the underlying Avro type. We do this by clearing the
-            # logicalType field of the schema and calling self._gen_decode.
-            schema = schema.copy()
-            del schema["logicalType"]
-            return self._gen_decode(schema, dest)
+        if isinstance(schema, DecimalBytesSchema):
+            prec = Constant(value=schema.precision)
+            scale_val = 0 if schema.scale is None else schema.scale
+            scale = Constant(value=scale_val)
+            call = func_call("decode_decimal_bytes", [src, prec, scale])
+        elif isinstance(schema, DecimalFixedSchema):
+            size = Constant(value=schema.size)
+            prec = Constant(value=schema.precision)
+            scale_val = 0 if schema.scale is None else schema.scale
+            scale = Constant(value=scale_val)
+            call = func_call("decode_decimal_fixed", [src, size, prec, scale])
+        elif isinstance(schema, UUIDSchema):
+            call = func_call("decode_uuid", [src])
+        elif isinstance(schema, DateSchema):
+            call = func_call("decode_date", [src])
+        elif isinstance(schema, TimeMillisSchema):
+            call = func_call("decode_time_millis", [src])
+        elif isinstance(schema, TimeMicrosSchema):
+            call = func_call("decode_time_micros", [src])
+        elif isinstance(schema, TimestampMillisSchema):
+            call = func_call("decode_timestamp_millis", [src])
+        elif isinstance(schema, TimestampMicrosSchema):
+            call = func_call("decode_timestamp_micros", [src])
+        else:
+            raise LogicalTypeError("unknown logical type")
+        return [Assign(targets=[dest], value=call)]
 
     def _gen_recursive_decode_call(
-        self, recursive_type_name: str, dest: AST
+        self, recursive_type: NamedSchema, dest: AST
     ) -> List[stmt]:
-        funcname = self._decoder_name(recursive_type_name)
+        funcname = self._decoder_name(recursive_type)
         return [
             Assign(
                 targets=[dest],

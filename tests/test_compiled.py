@@ -1,6 +1,7 @@
 import io
 import avroc.codegen.read
 import avroc.codegen.write
+import avroc.schema
 import fastavro.write
 import fastavro.read
 import fastavro._read
@@ -27,7 +28,7 @@ class testcase:
             fastavro.write.schemaless_writer(message_encoded, self.schema, m)
             message_encoded.seek(0)
 
-            c = avroc.codegen.read.ReaderCompiler(self.schema)
+            c = avroc.codegen.read.ReaderCompiler(avroc.schema.load_schema(self.schema))
             reader = c.compile()
             have = reader(message_encoded)
             if len(self.messages) > 1:
@@ -37,7 +38,7 @@ class testcase:
 
     def assert_writer(self):
         for i, m in enumerate(self.messages):
-            wc = avroc.codegen.write.WriterCompiler(self.schema)
+            wc = avroc.codegen.write.WriterCompiler(avroc.schema.load_schema(self.schema))
             writer = wc.compile()
             encoded = writer(m)
 
@@ -721,30 +722,8 @@ def test_ast_compiler_enum_with_default():
     fastavro.write.schemaless_writer(message_encoded, writer_schema, message)
     message_encoded.seek(0)
 
-    c = avroc.codegen.read.ReaderCompiler(reader_schema)
+    c = avroc.codegen.read.ReaderCompiler(avroc.schema.load_schema(reader_schema))
     reader = c.compile()
     have = reader(message_encoded)
 
     assert have == "A"
-
-
-def test_ast_compiler_read_file():
-    schema = {
-        "type": "record",
-        "name": "Record",
-        "fields": [
-            # Primitive types
-            {"type": "int", "name": "int_field"},
-        ],
-    }
-    records = [{"int_field": x} for x in range(10000)]
-    new_file = io.BytesIO()
-    fastavro.write.writer(new_file, schema, records)
-    new_file.seek(0)
-
-    official_reader = fastavro.read.reader(new_file)
-    want_records = list(official_reader)
-
-    new_file.seek(0)
-    have_records = list(avroc.codegen.read.read_file(new_file))
-    assert have_records == want_records
