@@ -39,7 +39,7 @@ class DeflateCodec(Codec):
 
     def encode(self, data: bytes) -> bytes:
         if self.compression_level is not None:
-            compressed = zlib.compress(data, compression_level)
+            compressed = zlib.compress(data, self.compression_level)
         else:
             compressed = zlib.compress(data)
         return compressed[2:-1]
@@ -71,7 +71,7 @@ class Bzip2Codec(Codec):
         return bz2.compress(data)
 
     def decode(self, source: bytes) -> bytes:
-        return bz2.decompress(data)
+        return bz2.decompress(source)
 
 
 class XZCodec(Codec):
