@@ -726,25 +726,3 @@ def test_ast_compiler_enum_with_default():
     have = reader(message_encoded)
 
     assert have == "A"
-
-
-def test_ast_compiler_read_file():
-    schema = {
-        "type": "record",
-        "name": "Record",
-        "fields": [
-            # Primitive types
-            {"type": "int", "name": "int_field"},
-        ],
-    }
-    records = [{"int_field": x} for x in range(10000)]
-    new_file = io.BytesIO()
-    fastavro.write.writer(new_file, schema, records)
-    new_file.seek(0)
-
-    official_reader = fastavro.read.reader(new_file)
-    want_records = list(official_reader)
-
-    new_file.seek(0)
-    have_records = list(avroc.codegen.read.read_file(new_file))
-    assert have_records == want_records

@@ -31,6 +31,7 @@ class testcase:
         assert have == self.output_msg, "reader behavior mismatch"
         assert type(have) == type(self.output_msg), "reader type mismatch"
 
+
 class failcase:
     def __init__(self, label, writer_schema, reader_schema, input_msg, error_matcher):
         self.label = label
@@ -373,13 +374,15 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "record_default",
-                 "type": {
-                     "type": "record",
-                     "fields": [{"type": "string", "name": "str_f"}],
-                     "name": "RecordDefault",
-                 },
-                 "default": {"str_f": "x"}},
+                {
+                    "name": "record_default",
+                    "type": {
+                        "type": "record",
+                        "fields": [{"type": "string", "name": "str_f"}],
+                        "name": "RecordDefault",
+                    },
+                    "default": {"str_f": "x"},
+                },
             ],
         },
         input_msg={},
@@ -398,9 +401,11 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "array_default",
-                 "type": {"type": "array", "items": "int"},
-                 "default": [5, 6, 7, 8]},
+                {
+                    "name": "array_default",
+                    "type": {"type": "array", "items": "int"},
+                    "default": [5, 6, 7, 8],
+                },
             ],
         },
         input_msg={},
@@ -419,9 +424,15 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "enum_default",
-                 "type": {"type": "enum", "name": "color", "symbols": ["RED", "YELLOW", "BLUE"]},
-                 "default": "YELLOW"},
+                {
+                    "name": "enum_default",
+                    "type": {
+                        "type": "enum",
+                        "name": "color",
+                        "symbols": ["RED", "YELLOW", "BLUE"],
+                    },
+                    "default": "YELLOW",
+                },
             ],
         },
         input_msg={},
@@ -440,9 +451,11 @@ record_testcases = [
             "type": "record",
             "name": "Record",
             "fields": [
-                {"name": "map_default",
-                 "type": {"type": "map", "values": "int"},
-                 "default": {"k": 1}},
+                {
+                    "name": "map_default",
+                    "type": {"type": "map", "values": "int"},
+                    "default": {"k": 1},
+                },
             ],
         },
         input_msg={},

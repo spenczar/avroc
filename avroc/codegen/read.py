@@ -2,7 +2,6 @@ from typing import Dict, Any, List, IO, Optional, Iterator
 
 import datetime
 
-from fastavro.read import block_reader
 from avroc.avro_common import PRIMITIVES
 from avroc.util import SchemaType, clean_name, LogicalTypeError
 from avroc.codegen.compiler import Compiler
@@ -58,22 +57,6 @@ from ast import (
     keyword,
     stmt,
 )
-
-
-def read_file(fo: IO[bytes]) -> Iterator[Any]:
-    """
-    Open an Avro Container Format file. Read its header to find the schema,
-    compile the schema, and use it to deserialize records, yielding them out.
-    """
-    blocks = block_reader(fo, reader_schema=None, return_record_name=False)
-    if blocks.writer_schema is None:
-        raise ValueError("missing write schema")
-    compiler = ReaderCompiler(blocks.writer_schema)
-    reader = compiler.compile()
-
-    for block in blocks:
-        for _ in range(block.num_records):
-            yield reader(block.bytes_)
 
 
 class ReaderCompiler(Compiler):
