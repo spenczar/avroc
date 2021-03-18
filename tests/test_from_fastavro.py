@@ -708,16 +708,18 @@ def test_union_schema_ignores_extra_fields():
 
 def test_appending_records(tmpdir):
     """https://github.com/fastavro/fastavro/issues/276"""
-    schema = avroc.schema.load_schema({
-        "type": "record",
-        "name": "test_appending_records",
-        "fields": [
-            {
-                "name": "field",
-                "type": "string",
-            }
-        ],
-    })
+    schema = avroc.schema.load_schema(
+        {
+            "type": "record",
+            "name": "test_appending_records",
+            "fields": [
+                {
+                    "name": "field",
+                    "type": "string",
+                }
+            ],
+        }
+    )
 
     test_file = str(tmpdir.join("test.avro"))
 

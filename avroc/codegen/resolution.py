@@ -63,18 +63,12 @@ class ResolvedReaderCompiler(ReaderCompiler):
         self.reader_names = gather_named_types(self.reader)
 
         if not self.schemas_match(writer, reader):
-            raise SchemaResolutionError(
-                writer, reader, "schemas do not match"
-            )
+            raise SchemaResolutionError(writer, reader, "schemas do not match")
 
         self.writer_recursive_types = find_recursive_types(self.writer)
-        self.writer_recursive_type_names = {
-            x.name for x in self.writer_recursive_types
-        }
+        self.writer_recursive_type_names = {x.name for x in self.writer_recursive_types}
         self.reader_recursive_types = find_recursive_types(self.reader)
-        self.reader_recursive_type_names = {
-            x.name for x in self.writer_recursive_types
-        }
+        self.reader_recursive_type_names = {x.name for x in self.writer_recursive_types}
         super(ResolvedReaderCompiler, self).__init__(writer)
 
     def generate_module(self) -> Module:
@@ -100,9 +94,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
         )
         body.append(
-            self.generate_upgrader_func(
-                self.writer, self.reader, self.entrypoint_name
-            )
+            self.generate_upgrader_func(self.writer, self.reader, self.entrypoint_name)
         )
 
         # Identify recursively-defined schemas. For each one, create a named
@@ -130,7 +122,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         module = fix_missing_locations(module)
         return module
 
-    def generate_upgrader_func(self, writer: Schema, reader: Schema, name: str) -> FunctionDef:
+    def generate_upgrader_func(
+        self, writer: Schema, reader: Schema, name: str
+    ) -> FunctionDef:
         """
         Returns an AST describing a function which can decode an Avro message from a
         IO[bytes] source. The data is decoded from the writer's schema and into
@@ -150,13 +144,13 @@ class ResolvedReaderCompiler(ReaderCompiler):
             decorator_list=[],
         )
 
-        func.body.extend(
-            self._gen_resolved_decode(writer, reader, result_var)
-        )
+        func.body.extend(self._gen_resolved_decode(writer, reader, result_var))
         func.body.append(Return(value=Name(id=result_var.id, ctx=Load())))
         return func
 
-    def _gen_resolved_decode(self, writer: Schema, reader: Schema, dest: AST) -> List[stmt]:
+    def _gen_resolved_decode(
+        self, writer: Schema, reader: Schema, dest: AST
+    ) -> List[stmt]:
         """
         It is an error if the two schemas do not match.
 
@@ -263,7 +257,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         # At this point, we're sure the schemas are dictionaries.
 
         if isinstance(writer, EnumSchema) and isinstance(reader, EnumSchema):
-            return self._gen_enum_upgrade(writer.symbols, reader.symbols, reader.default, dest)
+            return self._gen_enum_upgrade(
+                writer.symbols, reader.symbols, reader.default, dest
+            )
 
         if isinstance(writer, RecordSchema) and isinstance(reader, RecordSchema):
             return self._gen_record_upgrade(writer, reader, dest)
@@ -400,7 +396,12 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         return [Assign(targets=[dest], value=dict_lookup)]
 
-    def _gen_union_upgrade(self, writer: UnionSchema, reader: UnionSchema, dest: AST,) -> List[stmt]:
+    def _gen_union_upgrade(
+        self,
+        writer: UnionSchema,
+        reader: UnionSchema,
+        dest: AST,
+    ) -> List[stmt]:
         """
         Read data when both the writer and reader specified a union.
 
@@ -684,9 +685,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         )
         return statements
 
-    def _gen_decode_recursive_write(
-        self, writer: NamedSchema, dest: AST
-    ) -> List[stmt]:
+    def _gen_decode_recursive_write(self, writer: NamedSchema, dest: AST) -> List[stmt]:
         funcname = self._decoder_name(writer)
         return [
             Assign(
@@ -996,8 +995,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         #
         #   For the purposes of schema resolution, two schemas that are decimal
         #   logical types match if their scales and precisions match.
-        if (isinstance(writer, (DecimalBytesSchema, DecimalFixedSchema))
-            and isinstance(reader, (DecimalBytesSchema, DecimalFixedSchema))):
+        if isinstance(writer, (DecimalBytesSchema, DecimalFixedSchema)) and isinstance(
+            reader, (DecimalBytesSchema, DecimalFixedSchema)
+        ):
             return writer.scale == reader.scale and writer.precision == reader.precision
 
         if isinstance(writer, ArraySchema) and isinstance(reader, ArraySchema):

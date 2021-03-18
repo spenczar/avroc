@@ -16,15 +16,17 @@ except ImportError:
     TypedDict = Dict
 
 
-AvroFileHeaderSchema = load_schema({
-    "type": "record",
-    "name": "org.apache.avro.file.Header",
-    "fields": [
-        {"name": "magic", "type": {"type": "fixed", "name": "Magic", "size": 4}},
-        {"name": "meta", "type": {"type": "map", "values": "bytes"}},
-        {"name": "sync", "type": {"type": "fixed", "name": "Sync", "size": 16}},
-    ],
-})
+AvroFileHeaderSchema = load_schema(
+    {
+        "type": "record",
+        "name": "org.apache.avro.file.Header",
+        "fields": [
+            {"name": "magic", "type": {"type": "fixed", "name": "Magic", "size": 4}},
+            {"name": "meta", "type": {"type": "map", "values": "bytes"}},
+            {"name": "sync", "type": {"type": "fixed", "name": "Sync", "size": 16}},
+        ],
+    }
+)
 
 
 class AvroFileHeader(TypedDict):
@@ -86,7 +88,9 @@ class AvroFileWriter:
     def _read_header(self) -> NoReturn:
         self.fo.seek(0)
         header = read_header(self.fo)
-        existing_schema = load_schema(json.loads(header["meta"]["avro.schema"].decode()))
+        existing_schema = load_schema(
+            json.loads(header["meta"]["avro.schema"].decode())
+        )
         if existing_schema != self.schema:
             raise ValueError(
                 f"provided schema {self.schema} does not match file writer schema {existing_schema}"
@@ -173,7 +177,9 @@ class AvroFileReader:
                 "incorrect magic byte prefix, is this an Avro object container file?"
             )
         self.sync_marker = header["sync"]
-        self.writer_schema = load_schema(json.loads(header["meta"]["avro.schema"].decode()))
+        self.writer_schema = load_schema(
+            json.loads(header["meta"]["avro.schema"].decode())
+        )
 
         codec_id = header["meta"].get("avro.codec", b"null")
         if codec_id not in codec_by_id:

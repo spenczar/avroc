@@ -221,9 +221,7 @@ class ReaderCompiler(Compiler):
             prev_if = if_stmt
         return statements
 
-    def _gen_optional_decode(
-        self, idx: int, schema: Schema, dest: AST
-    ) -> List[stmt]:
+    def _gen_optional_decode(self, idx: int, schema: Schema, dest: AST) -> List[stmt]:
         statements: List[stmt] = []
         is_populated = Compare(
             left=call_decoder("long"),

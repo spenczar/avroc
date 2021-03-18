@@ -47,7 +47,9 @@ def dump_schema(s: Schema) -> str:
 
 
 def schema_from_obj(
-    obj: Union[str, list, dict], names: Dict[str, NamedSchema], parent_namespace: str = ""
+    obj: Union[str, list, dict],
+    names: Dict[str, NamedSchema],
+    parent_namespace: str = "",
 ) -> Schema:
     """
     Low-level constructor to create a new schema, while keeping track of naming of types.
@@ -162,7 +164,9 @@ class PrimitiveSchema(Schema):
         return PrimitiveSchema(type=val, default=None, _names={})
 
     @classmethod
-    def from_dict(cls, obj: Dict, names: dict, parent_namespace: str) -> PrimitiveSchema:
+    def from_dict(
+        cls, obj: Dict, names: dict, parent_namespace: str
+    ) -> PrimitiveSchema:
         return PrimitiveSchema(
             type=obj["type"],
             default=obj.get("default"),
@@ -307,7 +311,9 @@ class NamedSchemaReference(Schema):
     referenced_schema: NamedSchema
 
     @classmethod
-    def from_str(cls, s: str, names: Dict[str, NamedSchema], parent_namespace: str) -> NamedSchemaReference:
+    def from_str(
+        cls, s: str, names: Dict[str, NamedSchema], parent_namespace: str
+    ) -> NamedSchemaReference:
 
         if "." not in s:
             if parent_namespace != "":
@@ -324,7 +330,9 @@ class NamedSchemaReference(Schema):
         )
 
     @classmethod
-    def from_dict(cls, obj: dict, names: Dict[str, NamedSchema], parent_namespace: str) -> NamedSchemaReference:
+    def from_dict(
+        cls, obj: dict, names: Dict[str, NamedSchema], parent_namespace: str
+    ) -> NamedSchemaReference:
         name = obj["type"]
         if name not in names:
             raise SchemaValidationError(f"unknown name {name}")
@@ -607,10 +615,7 @@ class ArraySchema(Schema, ContainerSchema):
         )
 
     def to_dict(self) -> dict:
-        d = {
-            "type": "array",
-            "items": self.items.to_dict()
-        }
+        d = {"type": "array", "items": self.items.to_dict()}
         if self.default is not None:
             d["default"] = self.default
         return d
@@ -712,6 +717,7 @@ class UnionSchema(Schema, ContainerSchema):
 class LogicalSchema:
     logical_type: str
 
+
 @dataclass
 class DecimalBytesSchema(LogicalSchema, PrimitiveSchema):
     precision: int
@@ -741,6 +747,7 @@ class DecimalBytesSchema(LogicalSchema, PrimitiveSchema):
             d["scale"] = self.scale
         return d
 
+
 @dataclass
 class DecimalFixedSchema(LogicalSchema, FixedSchema):
     precision: int
@@ -753,18 +760,14 @@ class DecimalFixedSchema(LogicalSchema, FixedSchema):
         dbs = DecimalFixedSchema(
             type=obj["type"],
             default=obj.get("default", None),
-
             logical_type="decimal",
-
             name=obj["name"],
             namespace=obj.get("namespace"),
             parent_namespace=parent_namespace,
             aliases=obj.get("aliases"),
-
             size=obj["size"],
             precision=obj["precision"],
             scale=obj.get("scale"),
-
             _names=names,
         )
         return dbs
@@ -772,10 +775,11 @@ class DecimalFixedSchema(LogicalSchema, FixedSchema):
     def to_dict(self) -> dict:
         d = FixedSchema.to_dict(self)
         d["logicalType"] = "decimal"
-        d["precision"] = self.precision,
+        d["precision"] = (self.precision,)
         if self.scale is not None:
             d["scale"] = self.scale
         return d
+
 
 @dataclass
 class UUIDSchema(LogicalSchema, PrimitiveSchema):
@@ -834,6 +838,7 @@ class DateSchema(LogicalSchema, PrimitiveSchema):
             "logicalType": "date",
         }
 
+
 @dataclass
 class TimeMillisSchema(LogicalSchema, PrimitiveSchema):
     def validate(self):
@@ -841,7 +846,9 @@ class TimeMillisSchema(LogicalSchema, PrimitiveSchema):
             raise SchemaValidationError("time-millis must be an int")
 
     @classmethod
-    def from_dict(cls, obj, names: Dict[str, Schema], parent_namespace: str) -> TimeMillisSchema:
+    def from_dict(
+        cls, obj, names: Dict[str, Schema], parent_namespace: str
+    ) -> TimeMillisSchema:
         return TimeMillisSchema(
             type=obj["type"],
             logical_type="time-millis",
@@ -854,6 +861,7 @@ class TimeMillisSchema(LogicalSchema, PrimitiveSchema):
             "type": "int",
             "logicalType": "time-millis",
         }
+
 
 @dataclass
 class TimeMicrosSchema(LogicalSchema, PrimitiveSchema):
@@ -876,6 +884,7 @@ class TimeMicrosSchema(LogicalSchema, PrimitiveSchema):
             "logicalType": "time-micros",
         }
 
+
 @dataclass
 class TimestampMillisSchema(LogicalSchema, PrimitiveSchema):
     def validate(self):
@@ -896,6 +905,7 @@ class TimestampMillisSchema(LogicalSchema, PrimitiveSchema):
             "type": "long",
             "logicalType": "timestamp-millis",
         }
+
 
 @dataclass
 class TimestampMicrosSchema(LogicalSchema, PrimitiveSchema):
@@ -918,13 +928,13 @@ class TimestampMicrosSchema(LogicalSchema, PrimitiveSchema):
             "logicalType": "timestamp-micros",
         }
 
+
 @dataclass
 class DurationSchema(LogicalSchema, FixedSchema):
     def validate(self):
         super(DurationSchema, self).validate()
         if self.size != 12:
             raise SchemaValidationError("duration must have size of 12")
-
 
     @classmethod
     def from_dict(cls, obj, names, parent_namespace) -> DurationSchema:

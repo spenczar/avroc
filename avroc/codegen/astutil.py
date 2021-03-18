@@ -154,9 +154,7 @@ def literal_from_default(v: Any, schema: Schema) -> expr:
         assert isinstance(v, list)
         array_literal = ListLiteral(elts=[], ctx=Load())
         for array_item in v:
-            array_literal.elts.append(
-                literal_from_default(array_item, schema.items)
-            )
+            array_literal.elts.append(literal_from_default(array_item, schema.items))
         return array_literal
     elif isinstance(schema, MapSchema):
         # Default for a map is a dictionary; values are according to the values

@@ -451,7 +451,9 @@ class WriterCompiler(Compiler):
             return func_call("is_map", [msg])
 
         elif isinstance(schema, RecordSchema):
-            field_names = SetLiteral(elts=[Constant(value=f.name) for f in schema.fields])
+            field_names = SetLiteral(
+                elts=[Constant(value=f.name) for f in schema.fields]
+            )
             return func_call("is_record", [msg, field_names])
 
         raise NotImplementedError(f"have not implemented union check for type {schema}")

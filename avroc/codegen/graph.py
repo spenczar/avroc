@@ -52,7 +52,7 @@ def find_recursive_types(schema: Schema) -> List[RecordSchema]:
     for root in graph_roots:
         # There could be multiple graph roots if the schema is a top-level
         # union.
-        result.extend([node.schema for node in _find_cycle_roots(root)])  #type: ignore
+        result.extend([node.schema for node in _find_cycle_roots(root)])  # type: ignore
     return result
 
 
@@ -87,7 +87,9 @@ class NamegraphNode:
     references: Set["NamegraphNode"]
 
     def __init__(
-        self, schema: NamedSchema, references: Optional[Iterable["NamegraphNode"]] = None
+        self,
+        schema: NamedSchema,
+        references: Optional[Iterable["NamegraphNode"]] = None,
     ):
         self.schema = schema
         self.name = schema.name

@@ -38,7 +38,9 @@ class testcase:
 
     def assert_writer(self):
         for i, m in enumerate(self.messages):
-            wc = avroc.codegen.write.WriterCompiler(avroc.schema.load_schema(self.schema))
+            wc = avroc.codegen.write.WriterCompiler(
+                avroc.schema.load_schema(self.schema)
+            )
             writer = wc.compile()
             encoded = writer(m)
 
