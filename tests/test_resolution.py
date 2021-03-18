@@ -374,7 +374,11 @@ record_testcases = [
             "name": "Record",
             "fields": [
                 {"name": "record_default",
-                 "type": {"type": "record", "fields": [{"type": "str", "name": "str_f"}], "name": "RecordDefault"},
+                 "type": {
+                     "type": "record",
+                     "fields": [{"type": "string", "name": "str_f"}],
+                     "name": "RecordDefault",
+                 },
                  "default": {"str_f": "x"}},
             ],
         },
