@@ -83,7 +83,7 @@ class AvroFileWriter:
         else:
             self._write_header()
 
-    def _read_header(self) -> NoReturn:
+    def _read_header(self) -> None:
         self.fo.seek(0)
         header = read_header(self.fo)
         existing_schema = json.loads(header["meta"]["avro.schema"].decode())
@@ -93,21 +93,21 @@ class AvroFileWriter:
             )
 
         codec_id = header["meta"].get("avro.codec", b"null")
-        if codec_id not in codec_by_id:
-            raise ValueError(f"unknown codec: {codec_id}")
-        self.codec = codec_by_id.get(codec_id)()
-        self.codec
+        codec_cls = codec_by_id.get(codec_id)
+        if codec_cls is None:
+            raise ValueError(f"unknown codec: {codec_id!r}")
+        self.codec = codec_cls()
         self.sync_marker = header["sync"]
         self.fo.seek(0, 2)
 
-    def _write_header(self) -> NoReturn:
+    def _write_header(self) -> None:
         meta = {
             "avro.schema": json.dumps(self.schema).encode(),
             "avro.codec": self.codec.id(),
         }
         self.sync_marker = write_header(self.fo, meta)
 
-    def write(self, msg: Any) -> NoReturn:
+    def write(self, msg: Any) -> None:
         self.buf.write(self._write(msg))
         self.current_block_size += 1
         if self.current_block_size >= self.block_size:
