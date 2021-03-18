@@ -139,7 +139,6 @@ class ReaderCompiler(Compiler):
         deserialized value into dest.
         """
         if isinstance(schema, LogicalSchema):
-            print("decoding logical")
             return self._gen_logical_decode(schema, dest)
         elif isinstance(schema, PrimitiveSchema):
             return self._gen_primitive_decode(schema.type, dest)

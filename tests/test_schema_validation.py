@@ -253,3 +253,14 @@ testcases = [
 @pytest.mark.parametrize("case", testcases, ids=[tc.label for tc in testcases])
 def test_schema_validation(case):
     case.run()
+
+def test_schema_matching():
+    w = avroc.schema.load_schema({
+        "type": "enum",
+        "name": "color",
+        "symbols": ["red", "blue", "yellow"],
+    })
+    r = avroc.schema.load_schema(
+        {"type": "enum", "name": "color", "symbols": ["blue", "yellow"]},
+    )
+    assert avroc.schema.schemas_match(w, r)

@@ -17,10 +17,23 @@ def _test_files():
     for filename in glob.iglob(os.path.join(data_dir, "*.avro")):
         yield filename
 
+skip_files = {
+    "test.avro": "namespace contains illegal characters",
+    "double_float.avro": "namespace contains illegal characters",
+    "a_triple_pair.avro": "namespace contains illegal characters",
+    "lines.avro": "namespace contains illegal characters",
+    "part-00000.avro": "namespace contains illegal characters",
+}
+
 
 @pytest.mark.parametrize("filename", _test_files())
 def test_file(filename):
     # Read from disk
+    basename = os.path.basename(filename)
+    if basename in skip_files:
+        pytest.skip(skip_files[basename])
+        return
+
     with open(filename, "rb") as fo:
         reader = avroc.files.AvroFileReader(fo)
         records = [r for r in reader]

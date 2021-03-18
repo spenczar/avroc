@@ -106,7 +106,7 @@ def literal_from_default(v: Any, schema: Schema) -> expr:
     # Default for a primitive is just a literal constant
     if isinstance(schema, PrimitiveSchema):
         if schema.type == "null":
-            assert v is None
+            assert v is NullDefault
             return Constant(value=None)
         elif schema.type == "boolean":
             assert v is True or v is False

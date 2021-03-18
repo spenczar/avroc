@@ -62,7 +62,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         self.writer_names = gather_named_types(self.writer)
         self.reader_names = gather_named_types(self.reader)
 
-        if not self.schemas_match(writer, reader):
+        if not schemas_match(writer, reader):
             raise SchemaResolutionError(writer, reader, "schemas do not match")
 
         self.writer_recursive_types = find_recursive_types(self.writer)
@@ -227,9 +227,10 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         if isinstance(reader, LogicalSchema):
             return self._gen_logical_upgrade(writer, reader, dest)
-        # We don't actually need to check whether the writer used a logical
-        # type. If they did and the reader didn't, we should deserialize without
-        # doing any logical type conversions.
+
+        # We don't actually need to check whether the writer used a logical type
+        # if the reader didn't. If they did and the reader didn't, we should
+        # deserialize without doing any logical type conversions.
 
         # Dereference names, checking for recursion.
         if isinstance(writer, NamedSchemaReference):
@@ -440,7 +441,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             )
             # Take the first matching reader schema and use it for decoding.
             for r in reader.options:
-                if self.schemas_match(option, r):
+                if schemas_match(option, r):
                     # For options which can be cast into the reader's schema, generate a
                     # normal 'decode' statement (and do any casting necessary).
                     if_stmt.body = self._gen_resolved_decode(option, r, dest)
@@ -480,7 +481,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 error is signalled.
         """
         for schema in reader_schema.options:
-            if self.schemas_match(writer_schema, schema):
+            if schemas_match(writer_schema, schema):
                 return self._gen_resolved_decode(writer_schema, schema, dest)
         raise SchemaResolutionError(
             writer_schema,
@@ -708,7 +709,21 @@ class ResolvedReaderCompiler(ReaderCompiler):
         self, writer: Schema, reader: LogicalSchema, dest: AST
     ) -> List[stmt]:
         lt = reader.logical_type
-        # Maybe we need to do a type promotion.
+
+        if isinstance(writer, LogicalSchema):
+            # The writer picked a logical schema too. If it's not the same one
+            # as the reader, then something is probably very wrong.
+            if writer.logical_type != reader.logical_type:
+                raise SchemaResolutionError(writer, reader, "inconsistent logical types between reader and writer")
+            # Some logical types are unparameterized. Perhaps reader and writer
+            # just differ by a documentation comment, or a default. We can just
+            # decode them directly.
+            if lt in {"uuid", "date", "time-millis", "timestamp-millis", "time-micros", "timestamp-micros", "duration"}:
+                return self._gen_logical_decode(reader, dest)
+
+            # Decimal types are parameterized
+
+        # The writer isn't providing a logical type. Are they at least providing the same Maybe we need to do a type promotion.
         if lt == "uuid":
             assert writer.type == "bytes"
             call = func_call("uuid_from_bytes", [call_decoder("bytes")])
@@ -967,60 +982,3 @@ class ResolvedReaderCompiler(ReaderCompiler):
             ),
             cause=None,
         )
-
-    def schemas_match(self, writer: Schema, reader: Schema) -> bool:
-        """
-        To match, one of the following must hold:
-            both schemas are arrays whose item types match
-            both schemas are maps whose value types match
-            both schemas are enums whose (unqualified) names match
-            both schemas are fixed whose sizes and (unqualified) names match
-            both schemas are records with the same (unqualified) name
-            either schema is a union
-            both schemas have same primitive type
-            the writer's schema may be promoted to the reader's as follows:
-                int is promotable to long, float, or double
-                long is promotable to float or double
-                float is promotable to double
-                string is promotable to bytes
-                bytes is promotable to string
-        """
-        # Dereference named types.
-        if isinstance(writer, NamedSchemaReference):
-            writer = writer.referenced_schema
-        if isinstance(reader, NamedSchemaReference):
-            reader = reader.referenced_schema
-
-        # Special case for logical decimal types. From the spec:
-        #
-        #   For the purposes of schema resolution, two schemas that are decimal
-        #   logical types match if their scales and precisions match.
-        if isinstance(writer, (DecimalBytesSchema, DecimalFixedSchema)) and isinstance(
-            reader, (DecimalBytesSchema, DecimalFixedSchema)
-        ):
-            return writer.scale == reader.scale and writer.precision == reader.precision
-
-        if isinstance(writer, ArraySchema) and isinstance(reader, ArraySchema):
-            return self.schemas_match(writer.items, reader.items)
-
-        if isinstance(writer, MapSchema) and isinstance(reader, MapSchema):
-            return self.schemas_match(writer.values, reader.values)
-
-        if isinstance(writer, EnumSchema) and isinstance(reader, EnumSchema):
-            return reader.name_matches(writer)
-
-        if isinstance(writer, FixedSchema) and isinstance(reader, FixedSchema):
-            return reader.name_matches(writer) and writer.size == reader.size
-
-        if isinstance(writer, RecordSchema) and isinstance(reader, RecordSchema):
-            return reader.name_matches(writer)
-
-        if isinstance(writer, UnionSchema) or isinstance(reader, UnionSchema):
-            return True
-
-        if isinstance(writer, PrimitiveSchema) and isinstance(reader, PrimitiveSchema):
-            if writer.type == reader.type:
-                return True
-            return writer.promotable_to(reader)
-
-        return False

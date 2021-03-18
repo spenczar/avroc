@@ -1,4 +1,4 @@
-import json
+import avroc.schema
 
 
 class SchemaResolutionError(ValueError):
@@ -8,8 +8,8 @@ class SchemaResolutionError(ValueError):
         super(SchemaResolutionError, self).__init__(*args, **kwargs)
 
     def __str__(self):
-        ws = json.dumps(self.writer_schema)
-        rs = json.dumps(self.reader_schema)
+        ws = avroc.schema.dump_schema(self.writer_schema)
+        rs = avroc.schema.dump_schema(self.reader_schema)
         return f"{self.args[0]}: writer={ws}, reader={rs}"
 
     def __repr__(self):

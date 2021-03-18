@@ -51,9 +51,9 @@ class failcase:
 
         failed = False
         try:
-            c = avroc.codegen.resolution.ResolvedReaderCompiler(
-                self.writer_schema, self.reader_schema
-            )
+            w = avroc.schema.load_schema(self.writer_schema)
+            r = avroc.schema.load_schema(self.reader_schema)
+            c = avroc.codegen.resolution.ResolvedReaderCompiler(w, r)
             reader = c.compile()
         except Exception as e:
             failed = True
@@ -242,7 +242,7 @@ union_testcases = [
         writer_schema=["null", "int"],
         reader_schema="int",
         input_msg=None,
-        error_matcher="data written with type null is incompatible",
+        error_matcher="data written with type PrimitiveSchema(type='null', default=None) is incompatible",
     ),
     testcase(
         label="read into union",
@@ -1265,6 +1265,13 @@ incompatible_testcases = [
         input_msg=1,
         error_matcher="none of the options for the writer union can be resolved",
     ),
+    failcase(
+        label="changed logical type",
+        writer_schema={"logicalType": "timestamp-micros", "type": "long"},
+        reader_schema={"logicalType": "timestamp-millis", "type": "long"},
+        input_msg=1,
+        error_matcher="inconsistent logical types",
+    )
 ]
 
 

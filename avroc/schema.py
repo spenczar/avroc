@@ -16,6 +16,9 @@ from collections import defaultdict
 
 name_regex = re.compile("[A-Za-z_][A-Za-z0-9_]*$")
 
+# Sentinel value used for representing `"default": null`
+NullDefault = object()
+
 
 def validate(schema: Schema):
     walk(schema, lambda x: x.validate())
@@ -113,6 +116,63 @@ def walk(s: Schema, f: Callable[[Schema], None]) -> None:
                 to_visit.append(child)
 
 
+def schemas_match(writer: Schema, reader: Schema) -> bool:
+    """
+    To match, one of the following must hold:
+        both schemas are arrays whose item types match
+        both schemas are maps whose value types match
+        both schemas are enums whose (unqualified) names match
+        both schemas are fixed whose sizes and (unqualified) names match
+        both schemas are records with the same (unqualified) name
+        either schema is a union
+        both schemas have same primitive type
+        the writer's schema may be promoted to the reader's as follows:
+            int is promotable to long, float, or double
+            long is promotable to float or double
+            float is promotable to double
+            string is promotable to bytes
+            bytes is promotable to string
+    """
+    # Dereference named types.
+    if isinstance(writer, NamedSchemaReference):
+        writer = writer.referenced_schema
+    if isinstance(reader, NamedSchemaReference):
+        reader = reader.referenced_schema
+
+    # Special case for logical decimal types. From the spec:
+    #
+    #   For the purposes of schema resolution, two schemas that are decimal
+    #   logical types match if their scales and precisions match.
+    if isinstance(writer, (DecimalBytesSchema, DecimalFixedSchema)) and isinstance(
+        reader, (DecimalBytesSchema, DecimalFixedSchema)
+    ):
+        return writer.scale == reader.scale and writer.precision == reader.precision
+
+    if isinstance(writer, ArraySchema) and isinstance(reader, ArraySchema):
+        return schemas_match(writer.items, reader.items)
+
+    if isinstance(writer, MapSchema) and isinstance(reader, MapSchema):
+        return schemas_match(writer.values, reader.values)
+
+    if isinstance(writer, EnumSchema) and isinstance(reader, EnumSchema):
+        return reader.name_matches(writer)
+
+    if isinstance(writer, FixedSchema) and isinstance(reader, FixedSchema):
+        return reader.name_matches(writer) and writer.size == reader.size
+
+    if isinstance(writer, RecordSchema) and isinstance(reader, RecordSchema):
+        return reader.name_matches(writer)
+
+    if isinstance(writer, UnionSchema) or isinstance(reader, UnionSchema):
+        return True
+
+    if isinstance(writer, PrimitiveSchema) and isinstance(reader, PrimitiveSchema):
+        if writer.type == reader.type:
+            return True
+        return writer.promotable_to(reader)
+    return False
+
+
 @dataclass
 class Schema:
     type: str
@@ -148,7 +208,7 @@ class PrimitiveSchema(Schema):
 
     def default_is_valid(self) -> bool:
         if self.type == "null":
-            return self.default is None
+            return self.default is NullDefault
         elif self.type == "boolean":
             return self.default is False or self.default is True
         elif self.type == "int" or self.type == "long":
@@ -167,11 +227,27 @@ class PrimitiveSchema(Schema):
     def from_dict(
         cls, obj: Dict, names: dict, parent_namespace: str
     ) -> PrimitiveSchema:
-        return PrimitiveSchema(
+        ps = PrimitiveSchema(
             type=obj["type"],
             default=obj.get("default"),
             _names=names,
         )
+
+        if ps.type == "null":
+            if "default" in obj and obj["default"] is None:
+                ps.default = NullDefault
+        return ps
+
+    def to_dict(self):
+        d = {
+            "type": self.type,
+        }
+        if self.default is not None:
+            if self.default is NullDefault:
+                d["default"] = None
+            else:
+                d["default"] = self.default
+        return d
 
     def promotable_to(self, other: PrimitiveSchema) -> bool:
         promotions = {
@@ -364,6 +440,7 @@ class NamedSchemaReference(Schema):
 @dataclass
 class RecordSchema(NamedSchema, ContainerSchema):
     fields: List[FieldDefinition]
+    doc: Optional[str]
     recursive: bool = field(default=False, init=False)
 
     def validate(self):
@@ -401,6 +478,7 @@ class RecordSchema(NamedSchema, ContainerSchema):
             _names=names,
             default=obj.get("default"),
             aliases=obj.get("aliases"),
+            doc=obj.get("doc"),
             fields=[],
         )
         field_namespace = rs.namespace_for_children() or ""
@@ -412,6 +490,8 @@ class RecordSchema(NamedSchema, ContainerSchema):
     def to_dict(self) -> dict:
         d = NamedSchema.to_dict(self)
         d["fields"] = [f.to_dict() for f in self.fields]
+        if self.doc is not None:
+            d["doc"] = self.doc
         return d
 
     def default_is_valid(self) -> bool:
@@ -471,7 +551,7 @@ class FieldDefinition:
     def from_dict(
         cls, obj, names: Dict[str, NamedSchema], parent_namespace: str
     ) -> FieldDefinition:
-        return FieldDefinition(
+        fd = FieldDefinition(
             name=obj["name"],
             type=schema_from_obj(obj["type"], names, parent_namespace),
             doc=obj.get("doc"),
@@ -479,6 +559,11 @@ class FieldDefinition:
             order=obj.get("order"),
             aliases=obj.get("aliases"),
         )
+
+        if "default" in obj and obj["default"] is None:
+            fd.default = NullDefault
+
+        return fd
 
     def to_dict(self) -> dict:
         d = {
@@ -488,7 +573,10 @@ class FieldDefinition:
         if self.doc is not None:
             d["doc"] = self.doc
         if self.default is not None:
-            d["default"] = self.default
+            if self.default is NullDefault:
+                d["default"] = None
+            else:
+                d["default"] = self.default
         if self.order is not None:
             d["order"] = self.order
         if self.aliases is not None:
@@ -682,6 +770,12 @@ class UnionSchema(Schema, ContainerSchema):
             raise SchemaValidationError("unions must have at least two elements")
         for o in self.options:
             o.validate()
+
+    def default_is_valid(self) -> bool:
+        # A Union's default must match the first schema in the union.
+        schema_copy = copy.deepcopy(self.options[0])
+        schema_copy.default = self.default
+        return schema_copy.default_is_valid()
 
     @classmethod
     def from_list(
