@@ -27,22 +27,22 @@ def is_bytes(value: Any) -> bool:
 
 def is_int(value: Any) -> bool:
     return (
-        isinstance(value, int)
+        not isinstance(value, bool)
+        and isinstance(value, int)
         and -(1 << 31) - 1 <= value <= (1 << 31) - 1
-        and not isinstance(value, bool)
     )
 
 
 def is_long(value: Any) -> bool:
     return (
-        isinstance(value, int)
+        not isinstance(value, bool)
+        and isinstance(value, int)
         and -(1 << 63) - 1 <= value <= (1 << 63) - 1
-        and not isinstance(value, bool)
     )
 
 
 def is_float(value: Any) -> bool:
-    return isinstance(value, float) and not isinstance(value, bool)
+    return not isinstance(value, bool) and isinstance(value, float)
 
 
 def is_fixed(value: Any, size: int) -> bool:
