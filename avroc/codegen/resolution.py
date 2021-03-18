@@ -835,7 +835,6 @@ class ResolvedReaderCompiler(ReaderCompiler):
             raise SchemaResolutionError(
                 writer, reader, "cannot read uuid from writer type"
             )
-        return statements
 
     ### Skip Methods ###
     def _skipper_name(self, typename: str) -> str:
@@ -1082,14 +1081,28 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     return False
 
         if writer_type == "array" and reader_type == "array":
+            assert isinstance(writer, dict)
+            assert isinstance(reader, dict)
             return self.schemas_match(writer["items"], reader["items"])
+
         if writer_type == "map" and reader_type == "map":
+            assert isinstance(writer, dict)
+            assert isinstance(reader, dict)
             return self.schemas_match(writer["values"], reader["values"])
+
         if writer_type == "enum" and reader_type == "enum":
+            assert isinstance(writer, dict)
+            assert isinstance(reader, dict)
             return writer["name"] == reader["name"]
+
         if writer_type == "fixed" and reader_type == "fixed":
+            assert isinstance(writer, dict)
+            assert isinstance(reader, dict)
             return writer["name"] == reader["name"] and writer["size"] == reader["size"]
+
         if writer_type in {"record", "error"} and reader_type in {"record", "error"}:
+            assert isinstance(writer, dict)
+            assert isinstance(reader, dict)
             if writer["name"] == reader["name"]:
                 return True
             if "aliases" in reader:
@@ -1097,8 +1110,10 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     if writer["name"] == a:
                         return True
             return False
+
         if writer_type == "union" or reader_type == "union":
             return True
+
         if writer_type in PRIMITIVES:
             if writer_type == reader_type:
                 return True
