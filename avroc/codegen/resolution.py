@@ -231,7 +231,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         """
         if isinstance(reader_schema, dict) and "logicalType" in reader_schema:
             try:
-                return self._gen_logical_decode(writer_schema, reader_schema, dest)
+                return self._gen_logical_upgrade(writer_schema, reader_schema, dest)
             except LogicalTypeError:
                 # An unknown logical type, or one which is invalid; skip this.
                 # We'll pretend its a non-logical type.
@@ -245,7 +245,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         # Both are primitive types:
         if writer_type in PRIMITIVES and reader_type in PRIMITIVES:
-            return self._gen_type_promoting_primitive_decode(
+            return self._gen_type_promoting_primitive_upgrade(
                 writer_type, reader_type, dest
             )
 
@@ -274,7 +274,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         if writer_type == "union" and reader_type == "union":
             assert isinstance(writer_schema, list)
             assert isinstance(reader_schema, list)
-            return self._gen_union_decode(writer_schema, reader_schema, dest)
+            return self._gen_union_upgrade(writer_schema, reader_schema, dest)
         if writer_type == "union":
             assert isinstance(writer_schema, list)
             return self._gen_read_from_union(writer_schema, reader_schema, dest)
@@ -285,33 +285,35 @@ class ResolvedReaderCompiler(ReaderCompiler):
         # At this point, we're sure the schemas are dictionaries.
         assert isinstance(writer_schema, dict) and isinstance(reader_schema, dict)
         if writer_type == "enum" and reader_type == "enum":
-            return self._gen_enum_decode(
+            return self._gen_enum_upgrade(
                 writer_schema["symbols"],
                 reader_schema["symbols"],
                 reader_schema.get("default"),
                 dest,
             )
         if writer_type in {"record", "error"} and reader_type in {"record", "error"}:
-            return self._gen_record_decode(writer_schema, reader_schema, dest)
+            return self._gen_record_upgrade(writer_schema, reader_schema, dest)
 
         if writer_type == "array" and reader_type == "array":
-            return self._gen_array_decode(
+            return self._gen_array_upgrade(
                 writer_schema["items"], reader_schema["items"], dest
             )
 
         if writer_type == "map" and reader_type == "map":
-            return self._gen_map_decode(
+            return self._gen_map_upgrade(
                 writer_schema["values"], reader_schema["values"], dest
             )
 
         if writer_type == "fixed" and reader_type == "fixed":
+            if writer_schema["size"] != reader_schema["size"]:
+                raise SchemaResolutionError(writer_schema, reader_schema, "schemas have incompatible sizes")
             return self._gen_fixed_decode(reader_schema["size"], dest)
 
         raise SchemaResolutionError(
             writer_schema, reader_schema, "reader and writer schemas are incompatible"
         )
 
-    def _gen_type_promoting_primitive_decode(
+    def _gen_type_promoting_primitive_upgrade(
         self, writer_schema: str, reader_schema: str, dest: AST
     ) -> List[stmt]:
         """
@@ -379,7 +381,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         statements.append(assignment)
         return statements
 
-    def _gen_enum_decode(
+    def _gen_enum_upgrade(
         self,
         writer_symbols: List[str],
         reader_symbols: List[str],
@@ -429,7 +431,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         return [Assign(targets=[dest], value=dict_lookup)]
 
-    def _gen_union_decode(
+    def _gen_union_upgrade(
         self,
         writer_schema: List[SchemaType],
         reader_schema: List[SchemaType],
@@ -536,9 +538,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
         This is equivalent to the case where both writer and reader provided a
         union, but as if the reader's union only has one option.
         """
-        return self._gen_union_decode(writer_schema, [reader_schema], dest)
+        return self._gen_union_upgrade(writer_schema, [reader_schema], dest)
 
-    def _gen_record_decode(
+    def _gen_record_upgrade(
         self, writer_schema: SchemaType, reader_schema: SchemaType, dest: AST
     ) -> List[stmt]:
 
@@ -608,7 +610,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         )
         return statements
 
-    def _gen_array_decode(
+    def _gen_array_upgrade(
         self, writer_item_schema: SchemaType, reader_item_schema: SchemaType, dest: AST
     ) -> List[stmt]:
         """
@@ -672,7 +674,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
         statements.append(assign_result)
         return statements
 
-    def _gen_map_decode(
+    def _gen_map_upgrade(
         self, writer_values: SchemaType, reader_values: SchemaType, dest: AST
     ) -> List[stmt]:
         """
@@ -747,8 +749,8 @@ class ResolvedReaderCompiler(ReaderCompiler):
         # I don't think this is reachable?
         raise NotImplementedError("not implemented")
 
-    def _gen_logical_decode(
-        self, writer: SchemaType, reader: SchemaType, dest: AST
+    def _gen_logical_upgrade(
+        self, writer: SchemaType, reader: dict, dest: AST
     ) -> List[stmt]:
         writer_type = schema_type(writer)
         reader_type = schema_type(reader)
@@ -783,7 +785,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
             writer, reader, "unable to promote for logical type conversion"
         )
 
-    def _gen_logical_uuid_decode(
+    def _gen_logical_uuid_upgrade(
         self, writer: SchemaType, reader: SchemaType, dest: AST
     ) -> List[stmt]:
         # Decode a string (or promote from bytes).
@@ -800,10 +802,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
             raise SchemaResolutionError(
                 writer, reader, "cannot read uuid from writer type"
             )
-        return statements
 
-    def _gen_logical_decimal_bytes_decode(
-        self, writer: SchemaType, reader: SchemaType, dest: AST
+    def _gen_logical_decimal_bytes_upgrade(
+        self, writer: SchemaType, reader: dict, dest: AST
     ) -> List[stmt]:
         # Decode bytes (or promote from string).
         writer_type = schema_type(writer)

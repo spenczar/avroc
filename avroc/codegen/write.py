@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional, Any
 
-from fastavro._schema_common import PRIMITIVES
+from avroc.avro_common import PRIMITIVES
 from avroc.util import clean_name, SchemaType, LogicalTypeError
 from avroc.codegen.compiler import Compiler
 from avroc.codegen.astutil import (
