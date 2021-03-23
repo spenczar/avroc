@@ -21,6 +21,7 @@ project = 'avroc'
 copyright = '2021, Spencer Nelson'
 author = 'Spencer Nelson'
 
+release = '0.0.1'
 
 # -- General configuration ---------------------------------------------------
 
