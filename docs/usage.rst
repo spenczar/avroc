@@ -2,8 +2,175 @@
  Usage
 =======
 
-explain usage here
+Examples
+========
 
+Reading a file
+--------------
+
+.. code-block:: py
+
+   import avroc
+
+   with open("avro_data.avro", "rb") as f:
+       for msg in avroc.read_file(f):
+           print(msg)  # etc
+
+Writing a file
+--------------
+
+.. code-block:: py
+
+   import avroc
+
+   schema = {
+       "namespace": "example.avro",
+       "type": "record",
+       "name": "User",
+       "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "favorite_number",  "type": ["null", "int"]},
+           {"name": "favorite_color", "type": ["null", "string"]}
+       ]
+   }
+
+   messages = [
+       {
+           "name": "Alice",
+           "favorite_number": 42,
+           "favorite_color": "green",
+       },
+       {
+           "name": "Bob",
+           "favorite_number": 13,
+           "favorite_color": "blue",
+       },
+   ]
+
+   with open("avro_data.avro", "wb") as f:
+       avroc.write_file(f, schema, messages)
+
+Writing a file message-by-message
+---------------------------------
+
+.. code-block:: py
+
+   import avroc
+
+   schema = {
+       "namespace": "example.avro",
+       "type": "record",
+       "name": "User",
+       "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "favorite_number",  "type": ["null", "int"]},
+           {"name": "favorite_color", "type": ["null", "string"]}
+       ]
+   }
+
+   messages = [
+       {
+           "name": "Alice",
+           "favorite_number": 42,
+           "favorite_color": "green",
+       },
+       {
+           "name": "Bob",
+           "favorite_number": 13,
+           "favorite_color": "blue",
+       },
+   ]
+
+   with open("avro_data.avro", "wb") as f:
+       writer = avroc.AvroFileWriter(f, schema)
+       for m in messages:
+           writer.write(m)
+       writer.flush()
+
+Reading a file using a different schema from the writer
+-------------------------------------------------------
+
+.. code-block:: py
+
+   import avroc
+
+   new_schema = {
+       "namespace": "example.avro",
+       "type": "record",
+       "name": "User",
+       "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "favorite_number",  "type": ["null", "int"]},
+           {"name": "favorite_color", "type": ["null", "string"]}
+           {"name": "email", "type": "string", "default": "unset"}
+       ]
+   }
+
+   with open("avro_data.avro", "wb") as f:
+       for m in avroc.read_file(f, new_schema):
+           print(f'name: {m["name"]}  email: {m["email"]}')
+
+Encoding a single message to bytes
+----------------------------------
+
+.. code-block:: py
+
+   import avroc
+
+   schema = {
+       "namespace": "example.avro",
+       "type": "record",
+       "name": "User",
+       "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "favorite_number",  "type": ["null", "int"]},
+           {"name": "favorite_color", "type": ["null", "string"]}
+       ]
+   }
+
+   # Construct an encoder (don't do this for every message - it's a
+   # bunch of work)
+   encoder = avroc.message_encoder(schema)
+
+   message = {
+       "name": "Alice",
+       "favorite_number": 42,
+       "favorite_color": "green",
+   },
+
+   # encoder is a callable, so pass it a message directly. The
+   # return value is encoded bytes.
+   encoded = encoder(message)
+   print(repr(encoded))  #  b'\nAlice\x02T\x02\ngreen'
+
+Decoding a single message from bytes
+-------------------------------------
+
+.. code-block:: py
+
+   import avroc
+
+   schema = {
+       "namespace": "example.avro",
+       "type": "record",
+       "name": "User",
+       "fields": [
+           {"name": "name", "type": "string"},
+           {"name": "favorite_number",  "type": ["null", "int"]},
+           {"name": "favorite_color", "type": ["null", "string"]}
+       ]
+   }
+
+   # Construct a decoder (don't do this for every message - it's
+   # a bunch of work)
+   decoder = avroc.message_decoder(schema)
+
+   encoded_bytes = io.BytesIO(b'\nAlice\x02T\x02\ngreen')
+   decoded = decoder(encoded_bytes)
+
+   # {'name': 'Alice', 'favorite_number': 42,
+   #  'favorite_color': 'green'}
+   print(repr(decoded))
 
 Types
 =====
