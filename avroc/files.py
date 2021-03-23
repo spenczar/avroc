@@ -1,4 +1,4 @@
-from typing import NoReturn, Dict, IO, Any, Optional
+from typing import NoReturn, Dict, IO, Any, Optional, Iterable
 import secrets
 import json
 import io
@@ -179,6 +179,19 @@ class AvroFileReader:
         if codec_id not in codec_by_id:
             raise ValueError(f"unknown codec: {codec_id}")
         self.codec = codec_by_id.get(codec_id)()
+
+
+def write_file(fo: IO[bytes], schema: SchemaType, messages: Iterable[Any]):
+    w = AvroFileWriter(fo, schema)
+    for m in messages:
+        w.write(m)
+    w.flush()
+
+
+def read_file(fo: IO[bytes], schema: Optional[SchemaType]=None) -> Iterable[Any]:
+    r = AvroFileReader(fo, schema)
+    for msg in r:
+        yield msg
 
 
 def is_appendable(fo):
