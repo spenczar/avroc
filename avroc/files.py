@@ -107,6 +107,12 @@ class AvroFileWriter:
         }
         self.sync_marker = write_header(self.fo, meta)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.flush()
+
     def write(self, msg: Any) -> None:
         self.buf.write(self._write(msg))
         self.current_block_size += 1
@@ -130,10 +136,6 @@ class AvroFileWriter:
 
         # Reset buffer.
         self.buf = io.BytesIO()
-
-    def close(self):
-        self.flush()
-        self.fo.close()
 
 
 class AvroFileReader:

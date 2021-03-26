@@ -29,7 +29,13 @@ release = '0.0.1'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'sphinx.ext.intersphinx'
 ]
+
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'zstandard': ('https://python-zstandard.readthedocs.io/en/latest', None)
+}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

@@ -6,13 +6,16 @@
 avroc: Avro schemas, compiled at runtime
 ========================================
 
-Avroc is a library for interacting with Avro schemas.
+Avroc is a library for reading and writing Avro data. It's unusual because it
+compiles Avro schemas into Python code during runtime. You pay an upfront cost
+once to compile a schema, but then encoding and decoding data using that schema
+is extremely efficient.
+
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :caption: Contents:
 
-   install
    usage
    api
 

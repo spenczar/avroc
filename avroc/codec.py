@@ -86,14 +86,20 @@ class XZCodec(Codec):
 
 
 class ZstandardCodec(Codec):
+    def __init__(self, compressor: Optional[zstandard.ZstdCompressor]=None):
+        if compressor is None:
+            compressor = zstandard.ZstdCompressor()
+        self.compressor = compressor
+        self.decompressor = zstandard.ZstdDecompressor()
+
     def id(self) -> bytes:
         return b"zstandard"
 
     def encode(self, data: bytes) -> bytes:
-        return zstandard.ZstdCompressor().compress(data)
+        return self.compressor.compress(data)
 
     def decode(self, source: bytes) -> bytes:
-        return zstandard.ZstdDecompressor().decompress(source)
+        return self.decompressor.decompress(source)
 
 
 codec_by_id = {
