@@ -8,6 +8,7 @@ from avroc.codegen.graph import find_recursive_types
 from avroc.util import SchemaType, rand_str
 from avroc.schema import expand_names, gather_named_types
 
+import ast
 
 try:
     from ast import unparse
@@ -68,6 +69,19 @@ class Compiler:
 
         # Generate the AST:
         module = self.generate_module()
+
+        # Set any unset fields on AST nodes to 'None'. We do this so nothing is
+        # undefine when using the third-party astunparse library, which expects
+        # all fields to be set on AST node instances, even if set to None.
+        for node in ast.walk(module):
+            for field in node._fields:
+                if not hasattr(node, field):
+                    setattr(node, field, None)
+
+                if isinstance(node, ast.Constant):
+                    # See https://github.com/simonpercivall/astunparse/issues/60
+                    if not hasattr(node, "kind"):
+                        node.kind = None
 
         # Produce source code which is equivalent to the AST:
         source_code = unparse(module)
