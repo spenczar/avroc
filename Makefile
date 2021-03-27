@@ -7,7 +7,7 @@ dist: clean
 
 .PHONY: publish
 publish: dist
-	twine
+	twine upload dist/*
 
 .PHONY: test-all
 test-all:
