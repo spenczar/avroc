@@ -1,4 +1,5 @@
 build/
+dist/
 docs/_build
 .tox
 *.so
