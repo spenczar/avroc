@@ -53,3 +53,29 @@ def test_file(filename):
     new_records = [r for r in new_reader]
 
     assert new_records == records
+
+def test_file_writer_ctx_manager_flushes():
+    fp = io.BytesIO()
+    schema = "int"
+    with avroc.files.AvroFileWriter(fp, schema) as w:
+        w.write(1)
+        w.write(2)
+        w.write(3)
+    # Writer should flush on context exit, so the three values should be
+    # present.
+    fp.seek(0)
+    assert list(avroc.files.read_file(fp)) == [1, 2, 3]
+
+def test_file_writer_ctx_manager():
+    fp = io.BytesIO()
+    schema = "int"
+    with pytest.raises(ValueError):
+        with avroc.files.AvroFileWriter(fp, schema) as w:
+            w.write(1)
+            w.write(2)
+            w.write(3)
+            raise ValueError("barf")
+    # Writer should flush on context exit even in the face of an error, so the
+    # three values should be present.
+    fp.seek(0)
+    assert list(avroc.files.read_file(fp)) == [1, 2, 3]
