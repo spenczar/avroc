@@ -120,6 +120,10 @@ class AvroFileWriter:
             self.flush()
 
     def flush(self):
+        if self.current_block_size == 0:
+            # No data to be flushed.
+            return
+
         # Write the number of records.
         self.fo.write(encoding.encode_long(self.current_block_size))
 
@@ -179,6 +183,7 @@ class AvroFileReader:
 
         codec_id = header["meta"].get("avro.codec", b"null")
         if codec_id not in codec_by_id:
+
             raise ValueError(f"unknown codec: {codec_id}")
         self.codec = codec_by_id.get(codec_id)()
 
