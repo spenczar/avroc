@@ -10,7 +10,7 @@ API
 
 This module holds the main public API.
 
-.. py:function:: message_encoder(schema)
+.. py:function:: compile_encoder(schema)
 
    Construct a callable which encodes Python objects to bytes according to an
    Avro schema.
@@ -20,7 +20,7 @@ This module holds the main public API.
    :type schema: dict (see :ref:`schema-types`)
    :rtype: function encoder(msg) -> bytes
 
-.. py:function:: message_decoder(writer_schema, reader_schema=None)
+.. py:function:: compile_decoder(writer_schema, reader_schema=None)
 
    Construct a callable which decodes Python objects from a bytes reader.
 

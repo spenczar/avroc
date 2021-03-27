@@ -139,7 +139,7 @@ Encoding a single message to bytes
 
    # Construct an encoder (don't do this for every message - it's a
    # bunch of work)
-   encoder = avroc.message_encoder(schema)
+   encoder = avroc.compile_encoder(schema)
 
    message = {
        "name": "Alice",

@@ -34,10 +34,10 @@ class default_testcase:
 
         The reader see the field set to the default value.
         """
-        enc = avroc.messages.message_encoder(self.schema_with_default)
+        enc = avroc.messages.compile_encoder(self.schema_with_default)
         encoded = enc(self.message_without_default)
 
-        dec = avroc.messages.message_decoder(self.schema_with_default)
+        dec = avroc.messages.compile_decoder(self.schema_with_default)
         output = dec(io.BytesIO(encoded))
 
         assert output == self.message_with_default, "writer should set default value"
@@ -50,10 +50,10 @@ class default_testcase:
 
         The reader see the field set to the default value.
         """
-        enc = avroc.messages.message_encoder(self.schema_without_field)
+        enc = avroc.messages.compile_encoder(self.schema_without_field)
         encoded = enc(self.message_without_default)
 
-        dec = avroc.messages.message_decoder(
+        dec = avroc.messages.compile_decoder(
             self.schema_without_field, self.schema_with_default
         )
         output = dec(io.BytesIO(encoded))
@@ -68,10 +68,10 @@ class default_testcase:
 
         The reader should see the field set as set to the non-default value.
         """
-        enc = avroc.messages.message_encoder(self.schema_without_default)
+        enc = avroc.messages.compile_encoder(self.schema_without_default)
         encoded = enc(self.message_with_explicit_value)
 
-        dec = avroc.messages.message_decoder(
+        dec = avroc.messages.compile_decoder(
             self.schema_without_default, self.schema_with_default
         )
         output = dec(io.BytesIO(encoded))
@@ -88,10 +88,10 @@ class default_testcase:
 
         The reader should see the field set as set to the non-default value.
         """
-        enc = avroc.messages.message_encoder(self.schema_with_default)
+        enc = avroc.messages.compile_encoder(self.schema_with_default)
         encoded = enc(self.message_with_explicit_value)
 
-        dec = avroc.messages.message_decoder(self.schema_with_default)
+        dec = avroc.messages.compile_decoder(self.schema_with_default)
         output = dec(io.BytesIO(encoded))
 
         assert (

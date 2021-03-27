@@ -36,7 +36,6 @@ def test_file(filename):
         writer.write(r)
     writer.flush()
     read_buf = io.BytesIO(write_buf.getvalue())
-    writer.close()
 
     # Reread
     new_reader = avroc.files.AvroFileReader(read_buf)
