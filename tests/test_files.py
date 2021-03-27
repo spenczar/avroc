@@ -54,6 +54,7 @@ def test_file(filename):
 
     assert new_records == records
 
+
 def test_file_writer_ctx_manager_flushes():
     fp = io.BytesIO()
     schema = "int"
@@ -65,6 +66,7 @@ def test_file_writer_ctx_manager_flushes():
     # present.
     fp.seek(0)
     assert list(avroc.files.read_file(fp)) == [1, 2, 3]
+
 
 def test_file_writer_ctx_manager():
     fp = io.BytesIO()

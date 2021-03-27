@@ -306,7 +306,9 @@ class ResolvedReaderCompiler(ReaderCompiler):
 
         if writer_type == "fixed" and reader_type == "fixed":
             if writer_schema["size"] != reader_schema["size"]:
-                raise SchemaResolutionError(writer_schema, reader_schema, "schemas have incompatible sizes")
+                raise SchemaResolutionError(
+                    writer_schema, reader_schema, "schemas have incompatible sizes"
+                )
             return self._gen_fixed_decode(reader_schema["size"], dest)
 
         raise SchemaResolutionError(

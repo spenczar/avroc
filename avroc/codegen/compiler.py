@@ -16,6 +16,7 @@ try:
 except ImportError:
     from astunparse import unparse
 
+
 class Compiler:
     schema: SchemaType
     variable_name_counts: DefaultDict[str, int]

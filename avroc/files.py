@@ -195,7 +195,7 @@ def write_file(fo: IO[bytes], schema: SchemaType, messages: Iterable[Any]):
     w.flush()
 
 
-def read_file(fo: IO[bytes], schema: Optional[SchemaType]=None) -> Iterable[Any]:
+def read_file(fo: IO[bytes], schema: Optional[SchemaType] = None) -> Iterable[Any]:
     r = AvroFileReader(fo, schema)
     for msg in r:
         yield msg

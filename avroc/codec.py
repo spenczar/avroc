@@ -86,7 +86,7 @@ class XZCodec(Codec):
 
 
 class ZstandardCodec(Codec):
-    def __init__(self, compressor: Optional[zstandard.ZstdCompressor]=None):
+    def __init__(self, compressor: Optional[zstandard.ZstdCompressor] = None):
         if compressor is None:
             compressor = zstandard.ZstdCompressor()
         self.compressor = compressor
