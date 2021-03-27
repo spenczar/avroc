@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from avroc.avro_common import PRIMITIVES, AVRO_TYPES, is_primitive_schema, schema_type
+from avroc.avro_common import PRIMITIVES, AVRO_TYPES, schema_type
 from avroc.codegen.read import ReaderCompiler
 from avroc.codegen.errors import SchemaResolutionError
 from avroc.codegen.graph import find_recursive_types
@@ -10,45 +10,32 @@ from avroc.schema import expand_names, gather_named_types
 
 
 from ast import (
-    Add,
     AST,
     Assign,
     Attribute,
-    BinOp,
     Call,
     Compare,
     Constant,
     Dict as DictLiteral,
     Eq,
     Expr,
-    For,
-    FloorDiv,
     FunctionDef,
     If,
-    IfExp,
     Import,
     ImportFrom,
     Index,
     List as ListLiteral,
     Load,
-    Lt,
-    Mod,
     Module,
-    Mult,
     Name,
-    NotEq,
     Raise,
     Return,
     Store,
     Subscript,
-    USub,
-    UnaryOp,
-    While,
     alias,
     arg,
     arguments,
     fix_missing_locations,
-    keyword,
     stmt,
 )
 
@@ -485,7 +472,10 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     break
             else:
                 # For options which can't be cast, raise an error.
-                msg = f"data written with type {schema_type(option)} is incompatible with reader schema"
+                msg = (
+                    f"data written with type {schema_type(option)} is "
+                    + "incompatible with reader schema"
+                )
                 if_stmt.body = [self._gen_schema_error(msg)]
 
             # Chain statements into a series of if: ... elif: .... sequence
@@ -499,7 +489,8 @@ class ResolvedReaderCompiler(ReaderCompiler):
             raise SchemaResolutionError(
                 writer_schema,
                 reader_schema,
-                "none of the options for the writer union can be resolved to reader's schema",
+                "none of the options for the writer union can be "
+                + "resolved to reader's schema",
             )
         return statements
 
@@ -570,7 +561,8 @@ class ResolvedReaderCompiler(ReaderCompiler):
                     raise SchemaResolutionError(
                         writer_schema,
                         reader_schema,
-                        f"missing field {field['name']} from writer schema and no default is set",
+                        f"missing field {field['name']} from writer "
+                        + "schema and no default is set",
                     )
 
         # We've constructed the AST node representing a dictionary literal. Now,
@@ -839,7 +831,7 @@ class ResolvedReaderCompiler(ReaderCompiler):
                 writer, reader, "cannot read uuid from writer type"
             )
 
-    ### Skip Methods ###
+    # Skip Methods #
     def _skipper_name(self, typename: str) -> str:
         return f"_skip_{clean_name(typename)}"
 

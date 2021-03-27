@@ -4,71 +4,47 @@ from avroc.avro_common import PRIMITIVES
 from avroc.util import clean_name, SchemaType, LogicalTypeError
 from avroc.codegen.compiler import Compiler
 from avroc.codegen.astutil import (
-    add,
     call_encoder,
     extend_buffer,
-    floor_div,
     func_call,
     literal_from_default,
-    method_call,
-    mult,
 )
 
-INT_MAX_VALUE = (1 << 31) - 1
-INT_MIN_VALUE = -INT_MAX_VALUE
-LONG_MAX_VALUE = (1 << 63) - 1
-LONG_MIN_VALUE = -LONG_MAX_VALUE
-
 from ast import (
-    Add,
-    And,
-    AST,
     Assign,
     Attribute,
-    AugAssign,
-    BinOp,
-    BoolOp,
     Call,
     Compare,
     Constant,
     Dict as DictLiteral,
-    Eq,
-    Expr,
     For,
     FunctionDef,
     Gt,
     If,
-    IfExp,
     Import,
     ImportFrom,
     Index,
-    List as ListLiteral,
     Load,
-    Lt,
-    LtE,
     Module,
-    Mult,
     Name,
-    Not,
-    NotEq,
-    Pow,
     Raise,
     Return,
     Set,
     Store,
     Subscript,
     Tuple,
-    USub,
-    UnaryOp,
-    While,
     alias,
     arg,
     arguments,
     expr,
     fix_missing_locations,
-    keyword,
     stmt,
 )
+
+INT_MAX_VALUE = (1 << 31) - 1
+INT_MIN_VALUE = -INT_MAX_VALUE
+LONG_MAX_VALUE = (1 << 63) - 1
+LONG_MIN_VALUE = -LONG_MAX_VALUE
 
 
 class WriterCompiler(Compiler):
@@ -205,7 +181,6 @@ class WriterCompiler(Compiler):
     ) -> List[stmt]:
         if primitive_type == "null":
             return []
-        encoder_func_name = "encode_" + primitive_type
         value = call_encoder(primitive_type, msg)
         write = extend_buffer(buf, value)
         return [write]
@@ -393,7 +368,6 @@ class WriterCompiler(Compiler):
         statements: List[stmt] = []
 
         idx = 0
-        case = options[0]
         prev_if = None
 
         for idx, option_schema in enumerate(options):

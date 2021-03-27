@@ -1,6 +1,5 @@
 from typing import Optional
 
-import enum
 import zlib
 import bz2
 import snappy
@@ -59,7 +58,7 @@ class SnappyCodec(Codec):
 
     def decode(self, source: bytes) -> bytes:
         data = source[:-4]
-        crc = source[-4:]
+        _ = source[-4:]  # CRC
         return snappy.decompress(data)
 
 

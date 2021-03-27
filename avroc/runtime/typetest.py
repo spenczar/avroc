@@ -2,7 +2,7 @@
 This module contains functions for determining the type of an object so that
 we can write correct union indexes.
 """
-from typing import Any, Set, Callable
+from typing import Any, Set
 import decimal
 import uuid
 import datetime

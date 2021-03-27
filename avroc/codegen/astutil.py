@@ -1,7 +1,6 @@
 """
 astutil contains utility functions for generating an AST.
 """
-import json
 from avroc.avro_common import SchemaType, PRIMITIVES
 from typing import Union, List, Optional, Dict, Any
 from ast import (
@@ -21,7 +20,6 @@ from ast import (
     Mult,
     Store,
     Attribute,
-    Add,
     keyword,
 )
 

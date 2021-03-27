@@ -20,3 +20,7 @@ test:
 .PHONY: format
 format:
 	black ./tests ./avroc
+
+.PHONY: lint
+lint:
+	flake8 ./avroc

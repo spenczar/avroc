@@ -13,4 +13,7 @@ class SchemaResolutionError(ValueError):
         return f"{self.args[0]}: writer={ws}, reader={rs}"
 
     def __repr__(self):
-        return f"SchemaResolutionError({repr(self.writer_schema)}, {repr(self.reader_schema)}, {repr(self.args[0])})"
+        return (
+            f"SchemaResolutionError({repr(self.writer_schema)}, "
+            + f"{repr(self.reader_schema)}, {repr(self.args[0])})"
+        )

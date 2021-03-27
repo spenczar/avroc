@@ -1,27 +1,14 @@
-from typing import Dict, Any, List, IO, Optional, Iterator
-
-import datetime
+from typing import Dict, Any, List, Optional
 
 from avroc.avro_common import PRIMITIVES
 from avroc.util import SchemaType, clean_name, LogicalTypeError
 from avroc.codegen.compiler import Compiler
-from avroc.codegen.astutil import (
-    call_decoder,
-    method_call,
-    floor_div,
-    mod,
-    mult,
-    add,
-    utc,
-    func_call,
-)
+from avroc.codegen.astutil import call_decoder, func_call
 
 from ast import (
-    Add,
     AST,
     Assign,
     Attribute,
-    BinOp,
     Call,
     Compare,
     Constant,
@@ -29,7 +16,6 @@ from ast import (
     Eq,
     Expr,
     For,
-    FloorDiv,
     FunctionDef,
     If,
     IfExp,
@@ -38,23 +24,15 @@ from ast import (
     Index,
     List as ListLiteral,
     Load,
-    Lt,
-    Mod,
     Module,
-    Mult,
     Name,
-    NotEq,
     Return,
     Store,
     Subscript,
-    USub,
-    UnaryOp,
-    While,
     alias,
     arg,
     arguments,
     fix_missing_locations,
-    keyword,
     stmt,
 )
 

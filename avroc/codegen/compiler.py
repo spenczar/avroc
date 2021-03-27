@@ -1,8 +1,6 @@
 from typing import DefaultDict, List, Dict, Callable, Set
 
 import collections
-import platform
-import sys
 import linecache
 
 

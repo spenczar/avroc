@@ -4,7 +4,8 @@ import decimal
 import uuid
 import datetime
 
-### Primitives
+
+# Primitives
 
 # Long
 def decode_long(src: IO[bytes]) -> int:
@@ -146,7 +147,7 @@ def encode_bytes(msg: bytes) -> bytes:
     return buf
 
 
-### Logical Types
+# Logical Types
 
 # Decimal
 decimal_context = decimal.Context()
@@ -208,14 +209,16 @@ def _validate_decimal(d: decimal.Decimal, precision: int, scale: int) -> None:
     # Precision represents the number of digits that can be stored.
     if len(digits) > precision:
         raise ValueError(
-            "decimal value has more digits than is legal according to the schema's precision"
+            "decimal value has more digits than is legal according "
+            + "to the schema's precision"
         )
 
     # Scale represents the number of digits held after the decimal point.
     if exp < 0:
         if -exp > scale:
             raise ValueError(
-                "decimal value requires greater decimal scale than is legal according to the schema"
+                "decimal value requires greater decimal scale than is "
+                + "legal according to the schema"
             )
 
 

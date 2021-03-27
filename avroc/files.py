@@ -1,4 +1,4 @@
-from typing import NoReturn, Dict, IO, Any, Optional, Iterable
+from typing import Dict, IO, Any, Optional, Iterable
 import secrets
 import json
 import io
@@ -89,7 +89,8 @@ class AvroFileWriter:
         existing_schema = json.loads(header["meta"]["avro.schema"].decode())
         if existing_schema != self.schema:
             raise ValueError(
-                f"provided schema {self.schema} does not match file writer schema {existing_schema}"
+                f"provided schema {self.schema} does not match file writer"
+                + f"schema {existing_schema}"
             )
 
         codec_id = header["meta"].get("avro.codec", b"null")
