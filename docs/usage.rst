@@ -11,6 +11,30 @@ You can install ``avroc`` with pip:
 
    pip install avroc
 
+Basic Usage
+===========
+
+Avroc is a library for reading and writing data with Avro schemas. It works a
+little differently than most Avro libraries: with Avroc, a schema is *compiled*
+during runtime to convert it into efficient Python code. This means that the
+first time a schema is encountered during runtime, it might take a little longer
+to handle - but every call thereafter will be very fast when compared with the
+official avro library or fastavro.
+
+If you're working mostly with Avro files (called "`Avro Object Container files
+<https://avro.apache.org/docs/current/spec.html#Object+Container+Files>`_" in
+the Avro specification), compilation will probably be mostly invisible to you
+when using avroc. You can write a bunch of messages to a file with
+:py:obj:`avroc.write_file`, and things should just work. Reading should similary
+just work - the schema is embedded directly into any valid Avro files, and the
+:py:obj:`avroc.read_file` function will compile the schema in an Avro file when
+it opens it.
+
+If you're interested in encoding single messages directly into :py:obj:`bytes`
+(or decoding single messages, similarly), you'll use
+:py:obj:`avroc.compile_encoder` and :py:obj:`avroc.compile_decoder` to construct
+`encoder` and `decoder` functions.
+
 Examples
 ========
 

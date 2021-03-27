@@ -90,6 +90,51 @@ This module holds the main public API.
       know how to read the data automatically.
     - You can pick a block size and choose exactly when flushes occur.
 
+   Writes are buffered, and written in `blocks` of the given ``block-size``. As
+   a result, it is important to call :py:meth:`flush` to be ensure that all
+   writes are actually persisted to the underlying file.
+
+   This can be done by using the AvroFileWriter as a context manager. For example, like this:
+
+   .. code-block:: py
+
+      with open("data.avro", "wb") as f:
+          with AvroFileWriter(f, schema) as w:
+              w.write(msg1)
+              w.write(msg2)
+              w.write(msg3)
+
+      # When the 'with' block is exited, all writes will be
+      # flushed, so this is safe.
+
+   :param fo: A file-like object that can be written to in binary mode.
+   :type fo: File-like in bytes mode
+   :param schema: The schema to use when encoding data.
+   :type schema: dict (see :ref:`schema-types`)
+   :param codec: A compression codec to use when encoding data. The valid
+                 options are all the classes in :py:mod:`avroc.codec`. Make sure
+                 to pass an instantiated instance, not a class.
+   :type codec: avroc.codec.Codec
+
+   .. py:method:: write(msg)
+
+      Write a single message to the Avro file. Writes are batched into large
+      blocks; call :py:meth:`flush` to flush the current block.
+
+      :param msg: A message conforming to the writer's schema.
+
+   .. py:method:: flush()
+
+      Flush any outstanding writes to the underlying file.
+
+   .. py:method:: __enter__()
+
+      Returns self, allowing the writer to be used as a context manager.
+
+   .. py:method:: __exit__(exc_type, exc_value, exc_traceback)
+
+      Flushes any buffered writes and exits the context-managed block.
+
 
 
 .. py:module:: avroc.codec
@@ -104,6 +149,29 @@ help you save some space, at the cost of a bit of CPU time for compression and
 decompression.
 
 Avroc implements all the codecs `from the Avro specification <http://avro.apache.org/docs/1.10.2/spec.html#Required+Codecs>`_.
+
+.. py:class:: Codec()
+
+   Abstract base class, implemented by the other classes in this module. Those classes are:
+
+   +---------------------------+------------------------------+
+   | Class                     | Description                  |
+   +===========================+==============================+
+   | :py:obj:`NullCodec`       |No compression                |
+   +---------------------------+------------------------------+
+   | :py:obj:`DeflateCodec`    |Compress with DEFLATE, similar|
+   |                           |to gzip                       |
+   +---------------------------+------------------------------+
+   | :py:obj:`SnappyCodec`     |Compress with snappy          |
+   +---------------------------+------------------------------+
+   | :py:obj:`Bzip2Codec`      |Compress with bzip2           |
+   +---------------------------+------------------------------+
+   | :py:obj:`XZCodec`         |Compress with xz, from the    |
+   |                           |lzma family                   |
+   +---------------------------+------------------------------+
+   | :py:obj:`ZstandardCodec`  |Compress with zstandard       |
+   +---------------------------+------------------------------+
+
 
 .. py:class:: NullCodec()
 
@@ -135,7 +203,7 @@ Avroc implements all the codecs `from the Avro specification <http://avro.apache
    A XZCodec uses the `lzma <https://docs.python.org/3/library/lzma.html>`_
    compression algorithm.
 
-.. py:class:: ZstandardCodec(compressor=None, decompressor=None)
+.. py:class:: ZstandardCodec(compressor=None)
 
    A ZstandardCodec uses the `zstandard <https://facebook.github.io/zstd/>`_
    compression algorithm.
