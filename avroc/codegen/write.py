@@ -420,6 +420,8 @@ class WriterCompiler(Compiler):
                 return func_call("is_long", [msg])
             elif schema == "float":
                 return func_call("is_float", [msg])
+            elif schema == "double":
+                return func_call("is_double", [msg])
             else:
                 # Named type reference. Look it up.
                 referenced_schema = self.named_types[schema]

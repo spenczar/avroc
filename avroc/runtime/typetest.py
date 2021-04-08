@@ -45,6 +45,10 @@ def is_float(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, float)
 
 
+def is_double(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, float)
+
+
 def is_fixed(value: Any, size: int) -> bool:
     return isinstance(value, bytes) and len(value) == size
 

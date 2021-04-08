@@ -384,6 +384,11 @@ testcases = [
         message="stringval",
     ),
     testcase(
+        label="union of double",
+        schema=["null", "double"],
+        message=1.123,
+    ),
+    testcase(
         label="union of records",
         schema={
             "type": "record",
