@@ -1,6 +1,6 @@
 # Changelog
 
-## unreleased
+## 0.3.0 (2021-05-03)
 
 - Permit defaults for union-valued fields to match any of the union's types,
   rather than just the first type in the union. This makes avroc a little more
