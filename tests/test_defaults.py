@@ -146,6 +146,8 @@ testcases = [
         {"child": {"int_field": 3}},
         {"child": {"int_field": 4}},
     ),
+    default_testcase("union", ["int", "null"], 1, 2),
+    default_testcase("union using type other than the first", ["int", "null"], None, 2),
 ]
 
 # bytes and fixed fields need special separate construction for testing

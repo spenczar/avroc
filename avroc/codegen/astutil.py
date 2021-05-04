@@ -121,9 +121,15 @@ def literal_from_default(v: Any, schema: SchemaType) -> expr:
             return Constant(value=v)
         else:
             raise ValueError(f"unexpected schema type {schema}")
-    # Default for a union has the schema of the first type in the union
     elif isinstance(schema, list):
-        return literal_from_default(v, schema[0])
+        # Default for a union has the schema of the first type in the union, but
+        # lots of code violates this, so fall back to accepting later options.
+        for option in schema:
+            try:
+                return literal_from_default(v, option)
+            except:
+                pass
+        raise ValueError("no matching schema for default value")
     # Default for a complex type is... complex
     else:
         assert isinstance(schema, dict)
