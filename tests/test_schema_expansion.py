@@ -199,9 +199,9 @@ testcases = [
                     "type": {
                         "type": "array",
                         "items": "referenced_by_name",
-                    }
-                }
-            ]
+                    },
+                },
+            ],
         },
         after={
             "type": "record",
@@ -221,10 +221,10 @@ testcases = [
                     "type": {
                         "type": "array",
                         "items": "outer_ns.referenced_by_name",
-                    }
-                }
-            ]
-        }
+                    },
+                },
+            ],
+        },
     ),
     testcase(
         label="map using namespaced reference",
@@ -246,9 +246,9 @@ testcases = [
                     "type": {
                         "type": "map",
                         "values": "referenced_by_name",
-                    }
-                }
-            ]
+                    },
+                },
+            ],
         },
         after={
             "type": "record",
@@ -268,10 +268,10 @@ testcases = [
                     "type": {
                         "type": "map",
                         "values": "outer_ns.referenced_by_name",
-                    }
-                }
-            ]
-        }
+                    },
+                },
+            ],
+        },
     ),
     testcase(
         label="enum using namespaced reference",
@@ -291,8 +291,8 @@ testcases = [
                 {
                     "name": "enum_field",
                     "type": ["referenced_by_name", "null"],
-                }
-            ]
+                },
+            ],
         },
         after={
             "type": "record",
@@ -310,9 +310,9 @@ testcases = [
                 {
                     "name": "enum_field",
                     "type": ["outer_ns.referenced_by_name", "null"],
-                }
-            ]
-        }
+                },
+            ],
+        },
     ),
 ]
 
