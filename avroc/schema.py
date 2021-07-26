@@ -33,16 +33,16 @@ def expand_names(schema: SchemaType, enclosing_namespace: str = "") -> SchemaTyp
 
     # Non-named types.
     if schema["type"] == "array":
-        schema["items"] = expand_names(schema["items"])
+        schema["items"] = expand_names(schema["items"], enclosing_namespace)
         return schema
     if schema["type"] == "map":
-        schema["values"] = expand_names(schema["values"])
+        schema["values"] = expand_names(schema["values"], enclosing_namespace)
         return schema
     if schema["type"] in PRIMITIVES:
         return schema
     if schema["type"] not in {"enum", "fixed", "record", "error"}:
         # Named type reference.
-        return expand_names(schema["type"])
+        return expand_names(schema["type"], enclosing_namespace)
 
     # Named types (enum, fixed, and record)
     local_namespace = namespace(schema, enclosing_namespace)

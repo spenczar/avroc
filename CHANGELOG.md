@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2021-07-26)
+
+- Fix a bug when handling type references for arrays, maps, and enums which
+  depend upon enclosing namespaces for type name resolution.
+
 ## 0.3.0 (2021-05-03)
 
 - Permit defaults for union-valued fields to match any of the union's types,

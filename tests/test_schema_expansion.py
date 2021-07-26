@@ -179,6 +179,141 @@ testcases = [
             ],
         },
     ),
+    testcase(
+        label="array using namespaced reference",
+        before={
+            "type": "record",
+            "name": "foo",
+            "namespace": "outer_ns",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": {
+                        "name": "referenced_by_name",
+                        "type": "record",
+                        "fields": [],
+                    },
+                },
+                {
+                    "name": "array_field",
+                    "type": {
+                        "type": "array",
+                        "items": "referenced_by_name",
+                    }
+                }
+            ]
+        },
+        after={
+            "type": "record",
+            "name": "outer_ns.foo",
+            "namespace": "outer_ns",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": {
+                        "name": "outer_ns.referenced_by_name",
+                        "type": "record",
+                        "fields": [],
+                    },
+                },
+                {
+                    "name": "array_field",
+                    "type": {
+                        "type": "array",
+                        "items": "outer_ns.referenced_by_name",
+                    }
+                }
+            ]
+        }
+    ),
+    testcase(
+        label="map using namespaced reference",
+        before={
+            "type": "record",
+            "name": "foo",
+            "namespace": "outer_ns",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": {
+                        "name": "referenced_by_name",
+                        "type": "record",
+                        "fields": [],
+                    },
+                },
+                {
+                    "name": "map_field",
+                    "type": {
+                        "type": "map",
+                        "values": "referenced_by_name",
+                    }
+                }
+            ]
+        },
+        after={
+            "type": "record",
+            "namespace": "outer_ns",
+            "name": "outer_ns.foo",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": {
+                        "name": "outer_ns.referenced_by_name",
+                        "type": "record",
+                        "fields": [],
+                    },
+                },
+                {
+                    "name": "map_field",
+                    "type": {
+                        "type": "map",
+                        "values": "outer_ns.referenced_by_name",
+                    }
+                }
+            ]
+        }
+    ),
+    testcase(
+        label="enum using namespaced reference",
+        before={
+            "type": "record",
+            "name": "foo",
+            "namespace": "outer_ns",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": {
+                        "name": "referenced_by_name",
+                        "type": "record",
+                        "fields": [],
+                    },
+                },
+                {
+                    "name": "enum_field",
+                    "type": ["referenced_by_name", "null"],
+                }
+            ]
+        },
+        after={
+            "type": "record",
+            "name": "outer_ns.foo",
+            "namespace": "outer_ns",
+            "fields": [
+                {
+                    "name": "field1",
+                    "type": {
+                        "name": "outer_ns.referenced_by_name",
+                        "type": "record",
+                        "fields": [],
+                    },
+                },
+                {
+                    "name": "enum_field",
+                    "type": ["outer_ns.referenced_by_name", "null"],
+                }
+            ]
+        }
+    ),
 ]
 
 
