@@ -8,6 +8,8 @@ It aims to be:
    available in Python for dealing with Avro.
  - Ergonomic and simple to use, with a small API that's clear.
 
+You can read more [in this blog post](https://journal.spencerwnelson.com/entries/avro.html). 
+
 ## Installation
 
 Install with pip:
